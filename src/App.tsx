@@ -1,25 +1,24 @@
 import { useEffect } from 'react'
 import { WorkspaceProvider, useWorkspace, bgFor } from './lib/store'
 import TitleBar from './components/TitleBar'
-import ActivityBar from './components/ActivityBar'
-import SidePanel from './components/SidePanel'
+import FilesDrawer from './components/FilesDrawer'
 import EditorArea from './components/EditorArea'
 import TerminalPanel from './components/TerminalPanel'
-import AIPanel from './components/AIPanel'
+import NaluBar from './components/NaluBar'
 import CommandPalette from './components/CommandPalette'
 import StatusBar from './components/StatusBar'
+import SettingsModal from './components/SettingsModal'
 
 function Shell() {
   const ws = useWorkspace()
 
-  // global keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key === 'k') { e.preventDefault(); ws.setPaletteOpen(true) }
       else if (mod && e.key === 's') { e.preventDefault(); void ws.saveActive() }
       else if (mod && e.key === '`') { e.preventDefault(); ws.setTermOpen(!ws.termOpen) }
-      else if (mod && e.key === 'b') { e.preventDefault(); ws.setAiOpen(!ws.aiOpen) }
+      else if (mod && e.key === 'b') { e.preventDefault(); ws.setFilesOpen(!ws.filesOpen) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -27,9 +26,7 @@ function Shell() {
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden text-ink">
-      {/* Background model photo — exactly like the website (Workspace.bgFor):
-          a dedicated layer behind everything that shifts with the active Nalu
-          model, softened by a dark wash for readability. */}
+      {/* Website background: model photo + dark wash behind everything. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center"
@@ -43,21 +40,26 @@ function Shell() {
             'radial-gradient(1100px 760px at 6% -12%, rgba(56,120,255,0.18), transparent 55%), radial-gradient(950px 680px at 102% -4%, rgba(40,90,200,0.14), transparent 55%), linear-gradient(180deg, rgba(11,12,16,0.48), rgba(11,12,16,0.64))',
         }}
       />
+
       <TitleBar />
-      {/* Soft, spacious "floating cards on the canvas" — the Nalu website feel. */}
+
+      {/* ONE interface: the only drawer is Files (left); the center is the
+          editor with the terminal below it and the Nalu prompt bar always at
+          the bottom. Nothing else. */}
       <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
-        <ActivityBar />
-        <SidePanel />
+        {ws.filesOpen && <FilesDrawer />}
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/75 backdrop-blur-2xl">
             <EditorArea />
           </div>
           {ws.termOpen && <TerminalPanel />}
+          <NaluBar />
         </div>
-        {ws.aiOpen && <AIPanel />}
       </div>
+
       <StatusBar />
       {ws.paletteOpen && <CommandPalette />}
+      {ws.settingsOpen && <SettingsModal />}
     </div>
   )
 }

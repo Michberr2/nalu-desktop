@@ -14,6 +14,7 @@ const api = {
   term: {
     create: (id: string, cwd: string): Promise<boolean> => ipcRenderer.invoke('term:create', id, cwd),
     input: (id: string, data: string): void => ipcRenderer.send('term:input', id, data),
+    resize: (id: string, cols: number, rows: number): void => ipcRenderer.send('term:resize', id, cols, rows),
     kill: (id: string): Promise<boolean> => ipcRenderer.invoke('term:kill', id),
     onData: (id: string, cb: (data: string) => void): (() => void) => {
       const listener = (_e: unknown, data: string) => cb(data)

@@ -12,14 +12,14 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
-        vite: { build: { outDir: 'dist-electron', rollupOptions: { external: ['electron'] } } },
+        vite: { build: { outDir: 'dist-electron', rollupOptions: { external: ['electron', 'node-pty'] } } },
       },
       {
         entry: 'electron/preload.ts',
         onstart(args) {
           args.reload()
         },
-        vite: { build: { outDir: 'dist-electron', rollupOptions: { external: ['electron'] } } },
+        vite: { build: { outDir: 'dist-electron', rollupOptions: { external: ['electron', 'node-pty'] } } },
       },
     ]),
     renderer(),

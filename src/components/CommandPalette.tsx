@@ -1,5 +1,5 @@
 import { Command } from 'cmdk'
-import { FolderOpen, Save, TerminalSquare, Sparkles, FileText, Settings, GitBranch, Search } from 'lucide-react'
+import { FolderOpen, Save, TerminalSquare, FileText, Settings } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 
 export default function CommandPalette() {
@@ -8,15 +8,11 @@ export default function CommandPalette() {
   const run = (fn: () => void) => () => { fn(); close() }
 
   const actions = [
-    { icon: Sparkles, label: 'Ask Nalu to edit this file', kw: 'ai edit', run: run(() => ws.setAiOpen(true)) },
-    { icon: Sparkles, label: 'Explain the current selection', kw: 'ai explain', run: run(() => ws.setAiOpen(true)) },
     { icon: FolderOpen, label: 'Open folder…', kw: 'open', run: run(() => void ws.openFolder()) },
     { icon: Save, label: 'Save', kw: 'save', hint: '⌘S', run: run(() => void ws.saveActive()) },
-    { icon: TerminalSquare, label: 'New terminal', kw: 'terminal', hint: '⌘`', run: run(() => ws.setTermOpen(true)) },
-    { icon: Search, label: 'Search across files', kw: 'find', run: run(() => ws.setView('search')) },
-    { icon: GitBranch, label: 'Source control', kw: 'git', run: run(() => ws.setView('git')) },
-    { icon: FileText, label: 'Nalu Studio', kw: 'studio', run: run(() => ws.setView('studio')) },
-    { icon: Settings, label: 'Settings', kw: 'preferences', run: run(() => ws.setView('settings')) },
+    { icon: TerminalSquare, label: 'Toggle terminal', kw: 'terminal shell', hint: '⌘`', run: run(() => ws.setTermOpen(!ws.termOpen)) },
+    { icon: FileText, label: 'Toggle files', kw: 'explorer sidebar', hint: '⌘B', run: run(() => ws.setFilesOpen(!ws.filesOpen)) },
+    { icon: Settings, label: 'Settings', kw: 'preferences token account', run: run(() => ws.setSettingsOpen(true)) },
   ]
 
   return (

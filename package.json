@@ -15,12 +15,14 @@
     "dist:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
+    "@electron/rebuild": "^4.1.0",
     "@monaco-editor/react": "^4.6.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "cmdk": "^1.0.4",
     "lucide-react": "^0.451.0",
     "monaco-editor": "^0.55.0",
+    "node-pty": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -42,15 +44,35 @@
   "build": {
     "appId": "ai.n4lu.desktop",
     "productName": "Nalu",
-    "directories": { "output": "release", "buildResources": "build" },
-    "files": ["dist/**/*", "dist-electron/**/*"],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/wolf.icns",
       "hardenedRuntime": true,
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
     },
-    "win": { "icon": "build/wolf.ico", "target": ["msi"] },
-    "linux": { "icon": "build/wolf.png", "target": ["AppImage", "deb"], "category": "Development" }
+    "win": {
+      "icon": "build/wolf.ico",
+      "target": [
+        "msi"
+      ]
+    },
+    "linux": {
+      "icon": "build/wolf.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development"
+    }
   }
 }

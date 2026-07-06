@@ -37,8 +37,10 @@ export default function TerminalPanel() {
     const offExit = window.nalu.term.onExit(id, () => term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n'))
     term.onData((d) => window.nalu.term.input(id, d))
 
-    const ro = new ResizeObserver(() => fit.fit())
+    const syncSize = () => { fit.fit(); window.nalu.term.resize(id, term.cols, term.rows) }
+    const ro = new ResizeObserver(syncSize)
     ro.observe(host)
+    setTimeout(syncSize, 50) // initial size after mount
 
     return () => {
       offData(); offExit(); ro.disconnect()

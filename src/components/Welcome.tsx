@@ -5,7 +5,7 @@ export default function Welcome() {
   const ws = useWorkspace()
   const actions = [
     { icon: FolderOpen, label: 'Open folder', hint: '', run: () => void ws.openFolder() },
-    { icon: Sparkles, label: 'Ask Nalu', hint: '⌘B', run: () => ws.setAiOpen(true) },
+    { icon: Sparkles, label: 'Ask Nalu', hint: '', run: () => (document.querySelector('textarea')?.focus()) },
     { icon: TerminalSquare, label: 'New terminal', hint: '⌘`', run: () => ws.setTermOpen(true) },
     { icon: Command, label: 'Command palette', hint: '⌘K', run: () => ws.setPaletteOpen(true) },
   ]

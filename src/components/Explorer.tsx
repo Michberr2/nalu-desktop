@@ -67,18 +67,9 @@ export default function Explorer() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-dim">
-          {ws.folder.split('/').pop()}
-        </span>
-        <button onClick={() => void ws.openFolder()} title="Open folder" className="text-dim hover:text-ink">
-          <FolderOpen size={14} />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-        {roots.map((n) => <TreeNode key={n.path} node={n} depth={0} />)}
-      </div>
+    <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+      <div className="mb-1 px-1.5 text-[11px] font-medium text-dim">{ws.folder.split('/').pop()}</div>
+      {roots.map((n) => <TreeNode key={n.path} node={n} depth={0} />)}
     </div>
   )
 }

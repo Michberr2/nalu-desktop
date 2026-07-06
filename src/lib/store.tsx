@@ -2,8 +2,6 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 
 export type Tab = { path: string; name: string; content: string; dirty: boolean }
 
-type View = 'explorer' | 'search' | 'git' | 'studio' | 'settings'
-
 type Ctx = {
   folder: string | null
   openFolder: () => Promise<void>
@@ -15,14 +13,15 @@ type Ctx = {
   closeTab: (path: string) => void
   editActive: (content: string) => void
   saveActive: () => Promise<void>
-  view: View
-  setView: (v: View) => void
-  aiOpen: boolean
-  setAiOpen: (b: boolean) => void
+  // one drawer (files), one bottom panel (terminal), one modal (settings)
+  filesOpen: boolean
+  setFilesOpen: (b: boolean) => void
   termOpen: boolean
   setTermOpen: (b: boolean) => void
   paletteOpen: boolean
   setPaletteOpen: (b: boolean) => void
+  settingsOpen: boolean
+  setSettingsOpen: (b: boolean) => void
   routeName: string
   setRouteName: (s: string) => void
 }
@@ -44,22 +43,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [folder, setFolder] = useState<string | null>(null)
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
-  const [view, setView] = useState<View>('explorer')
-  const [aiOpen, setAiOpen] = useState(true)
+  const [filesOpen, setFilesOpen] = useState(true)
   const [termOpen, setTermOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [routeName, setRouteName] = useState('nalu-catalina')
 
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()
-    if (dir) setFolder(dir)
+    if (dir) { setFolder(dir); setFilesOpen(true) }
   }, [])
 
   const openFile = useCallback(async (path: string, name: string) => {
-    setTabs((prev) => {
-      if (prev.some((t) => t.path === path)) return prev
-      return prev // content loaded below
-    })
     const existing = tabs.find((t) => t.path === path)
     if (!existing) {
       const content = await window.nalu.readFile(path)
@@ -93,9 +88,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     folder, openFolder,
     tabs, activePath, active,
     openFile, setActive: setActivePath, closeTab, editActive, saveActive,
-    view, setView,
-    aiOpen, setAiOpen, termOpen, setTermOpen, paletteOpen, setPaletteOpen,
-    routeName, setRouteName,
+    filesOpen, setFilesOpen, termOpen, setTermOpen, paletteOpen, setPaletteOpen,
+    settingsOpen, setSettingsOpen, routeName, setRouteName,
   }
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>
 }

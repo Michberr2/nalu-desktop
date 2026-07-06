@@ -1,5 +1,4 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -90,32 +89,36 @@ ipcMain.handle('fs:rename', async (_e, from: string, to: string) => {
   return true
 })
 
-// ---- Terminal IPC (a real shell via child_process) -------------------------
-// Uses a login shell with piped stdio — no native pty module, so it installs
-// and builds everywhere. (node-pty is the v1+ upgrade for full interactivity.)
+// ---- Terminal IPC — a REAL pseudo-terminal via node-pty --------------------
+// A true pty gives a proper prompt, character echo, colors, and interactive
+// programs (vim, top, npm prompts…) — everything a piped child_process can't.
 
-const shells: Record<string, ChildProcessWithoutNullStreams> = {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PtyProc = { write(d: string): void; resize(c: number, r: number): void; kill(): void; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void }
+const shells: Record<string, PtyProc> = {}
 
-ipcMain.handle('term:create', (e, id: string, cwd: string) => {
+ipcMain.handle('term:create', async (e, id: string, cwd: string) => {
+  const pty = await import('node-pty')
   const shellPath = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh'
-  const args = process.platform === 'win32' ? [] : ['-i']
-  const child = spawn(shellPath, args, {
+  const proc = pty.spawn(shellPath, [], {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
     cwd: cwd || os.homedir(),
-    env: { ...process.env, TERM: 'xterm-256color' },
-  })
-  shells[id] = child
-  const send = (data: Buffer) => e.sender.send(`term:data:${id}`, data.toString())
-  child.stdout.on('data', send)
-  child.stderr.on('data', send)
-  child.on('exit', (code) => {
-    e.sender.send(`term:exit:${id}`, code)
-    delete shells[id]
-  })
+    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+  }) as unknown as PtyProc
+  shells[id] = proc
+  proc.onData((data) => e.sender.send(`term:data:${id}`, data))
+  proc.onExit(({ exitCode }) => { e.sender.send(`term:exit:${id}`, exitCode); delete shells[id] })
   return true
 })
 
 ipcMain.on('term:input', (_e, id: string, data: string) => {
-  shells[id]?.stdin.write(data)
+  shells[id]?.write(data)
+})
+
+ipcMain.on('term:resize', (_e, id: string, cols: number, rows: number) => {
+  try { shells[id]?.resize(cols, rows) } catch { /* ignore transient resize */ }
 })
 
 ipcMain.handle('term:kill', (_e, id: string) => {

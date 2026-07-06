@@ -6,3 +6,4 @@ dist/
 dist-electron/
 release/
 build/icon.png
+_ptytest.cjs
