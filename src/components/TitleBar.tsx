@@ -5,22 +5,23 @@ export default function TitleBar() {
   const ws = useWorkspace()
   const isMac = window.nalu?.platform === 'darwin'
   return (
-    <div className="drag flex h-10 shrink-0 items-center gap-2 px-3">
-      {isMac && <div className="w-14" />}
+    <div className="drag flex h-11 shrink-0 items-center gap-2 px-3">
+      {/* clear the macOS traffic lights (they sit at x=16 + ~54px wide) */}
+      {isMac && <div className="w-[74px] shrink-0" />}
       <button
         onClick={() => ws.setFilesOpen(!ws.filesOpen)}
         title="Toggle files (⌘B)"
-        className={`no-drag flex h-7 w-7 items-center justify-center rounded-lg ${ws.filesOpen ? 'text-gold' : 'text-dim hover:text-ink'}`}
+        className={`no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${ws.filesOpen ? 'text-gold' : 'text-dim hover:text-ink'}`}
       >
         <PanelLeft size={16} />
       </button>
-      <div className="flex items-center gap-2 pl-1">
+      <div className="flex shrink-0 items-center gap-2 pl-0.5">
         <img src="/wolf-icon.png" alt="Nalu" className="h-4 w-4 rounded" style={{ filter: 'brightness(0) invert(1)' }} />
         <span className="text-[13px] font-semibold tracking-tight text-ink">Nalu</span>
       </div>
       <button
         onClick={() => ws.setPaletteOpen(true)}
-        className="no-drag mx-auto flex h-7 w-full max-w-md items-center gap-2 rounded-full border border-glass/[0.08] bg-panel/60 px-3.5 text-[12px] text-dim backdrop-blur hover:border-gold/30 hover:text-ink"
+        className="no-drag mx-auto flex h-7 w-full min-w-0 max-w-md items-center gap-2 rounded-full border border-glass/[0.08] bg-panel/60 px-3.5 text-[12px] text-dim backdrop-blur hover:border-gold/30 hover:text-ink"
       >
         <Search size={12} />
         <span className="truncate">{ws.folder ? ws.folder.split('/').pop() : 'Search or run a command'}<span className="ml-1.5 text-dim/60">⌘K</span></span>

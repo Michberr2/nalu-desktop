@@ -26,8 +26,8 @@ function createWindow() {
     show: false,
     backgroundColor: '#0b0c10',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    titleBarOverlay: process.platform === 'darwin' ? undefined : { color: '#11141c', symbolColor: '#ededed', height: 36 },
-    trafficLightPosition: { x: 14, y: 12 },
+    titleBarOverlay: process.platform === 'darwin' ? undefined : { color: '#11141c', symbolColor: '#ededed', height: 44 },
+    trafficLightPosition: { x: 16, y: 16 },
     icon: path.join(__dirname, '../build/wolf.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -38,6 +38,11 @@ function createWindow() {
   })
 
   win.once('ready-to-show', () => win?.show())
+
+  // Show the Nalu wolf logo in the macOS dock (dev + packaged).
+  if (process.platform === 'darwin') {
+    try { app.dock?.setIcon(path.join(__dirname, '../build/icon.png')) } catch { /* icon optional */ }
+  }
 
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL)

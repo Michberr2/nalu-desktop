@@ -7,3 +7,4 @@ dist-electron/
 release/
 build/icon.png
 _ptytest.cjs
+build/nalu.iconset/
