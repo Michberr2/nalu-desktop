@@ -41,7 +41,7 @@ function Placeholder({ label }: { label: string }) {
 export default function SidePanel() {
   const ws = useWorkspace()
   return (
-    <div className="flex w-60 shrink-0 flex-col border-r border-glass/[0.08] bg-sidebar">
+    <div className="flex w-64 shrink-0 flex-col overflow-hidden rounded-2xl border border-glass/[0.08] bg-panel">
       {ws.view === 'explorer' && <Explorer />}
       {ws.view === 'settings' && <Settings />}
       {ws.view === 'search' && <Placeholder label="Search across files" />}

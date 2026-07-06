@@ -47,21 +47,20 @@ export default function EditorArea() {
   const ws = useWorkspace()
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-canvas">
-      {/* tabs */}
+    <div className="flex min-h-0 flex-1 flex-col bg-panel">
+      {/* tabs — soft rounded chips, Nalu website style */}
       {ws.tabs.length > 0 && (
-        <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-glass/[0.08] bg-panel">
+        <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto px-2">
           {ws.tabs.map((t) => {
             const activeT = t.path === ws.activePath
             return (
               <div
                 key={t.path}
                 onClick={() => ws.setActive(t.path)}
-                className={`group flex cursor-pointer items-center gap-1.5 border-r border-glass/[0.06] px-3 text-[12px] ${
-                  activeT ? 'bg-canvas text-ink' : 'text-dim hover:text-ink'
+                className={`group flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors ${
+                  activeT ? 'bg-canvas text-ink shadow-sm' : 'text-dim hover:bg-glass/[0.05] hover:text-ink'
                 }`}
               >
-                {activeT && <span className="absolute -mt-8 h-0.5 w-full" />}
                 <FileIcon name={t.name} dir={false} />
                 <span className="max-w-[10rem] truncate">{t.name}</span>
                 {t.dirty ? (
@@ -80,8 +79,8 @@ export default function EditorArea() {
         </div>
       )}
 
-      {/* editor */}
-      <div className="min-h-0 flex-1">
+      {/* editor — the code surface, an inset rounded panel inside the card */}
+      <div className="min-h-0 flex-1 overflow-hidden rounded-t-xl border-t border-glass/[0.05]">
         {ws.active ? (
           <Editor
             key={ws.active.path}

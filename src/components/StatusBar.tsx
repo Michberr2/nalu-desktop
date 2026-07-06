@@ -5,7 +5,7 @@ export default function StatusBar() {
   const ws = useWorkspace()
   const lang = ws.active?.name.split('.').pop()?.toUpperCase() || ''
   return (
-    <div className="flex h-6 shrink-0 items-center gap-4 border-t border-glass/[0.08] bg-panel px-3 text-[11px] text-dim">
+    <div className="flex h-6 shrink-0 items-center gap-4 bg-canvas px-4 text-[11px] text-dim">
       <span className="flex items-center gap-1"><GitBranch size={11} /> main</span>
       <span className="flex items-center gap-1"><Check size={11} className="text-accent" /> 0</span>
       <div className="flex-1" />

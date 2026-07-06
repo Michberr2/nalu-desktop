@@ -5,7 +5,7 @@ export default function TitleBar() {
   const ws = useWorkspace()
   const isMac = window.nalu?.platform === 'darwin'
   return (
-    <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-glass/[0.08] bg-panel px-3">
+    <div className="drag flex h-10 shrink-0 items-center gap-3 bg-canvas px-3">
       {/* leave room for the macOS traffic lights */}
       {isMac && <div className="w-16" />}
       <div className="flex items-center gap-2">
@@ -14,7 +14,7 @@ export default function TitleBar() {
       </div>
       <button
         onClick={() => ws.setPaletteOpen(true)}
-        className="no-drag mx-auto flex h-6 w-full max-w-md items-center gap-2 rounded-md border border-glass/[0.08] bg-panel2 px-2.5 text-[12px] text-dim hover:border-glass/[0.14] hover:text-ink"
+        className="no-drag mx-auto flex h-7 w-full max-w-md items-center gap-2 rounded-full border border-glass/[0.08] bg-panel px-3.5 text-[12px] text-dim hover:border-gold/30 hover:text-ink"
       >
         <Search size={12} />
         <span className="truncate">

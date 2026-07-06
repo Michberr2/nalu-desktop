@@ -28,14 +28,15 @@ function Shell() {
   return (
     <div className="flex h-full w-full flex-col bg-canvas text-ink">
       <TitleBar />
-      <div className="flex min-h-0 flex-1">
+      {/* Soft, spacious "floating cards on the canvas" — the Nalu website feel. */}
+      <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
         <ActivityBar />
         <SidePanel />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-glass/[0.08] bg-panel">
             <EditorArea />
-            {ws.termOpen && <TerminalPanel />}
           </div>
+          {ws.termOpen && <TerminalPanel />}
         </div>
         {ws.aiOpen && <AIPanel />}
       </div>

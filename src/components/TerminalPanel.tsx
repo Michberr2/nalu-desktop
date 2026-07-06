@@ -49,7 +49,7 @@ export default function TerminalPanel() {
   }, [])
 
   return (
-    <div className="flex h-56 shrink-0 flex-col border-t border-glass/[0.08] bg-panel2">
+    <div className="flex h-56 shrink-0 flex-col overflow-hidden rounded-2xl border border-glass/[0.08] bg-panel">
       <div className="flex h-8 shrink-0 items-center justify-between border-b border-glass/[0.06] px-3">
         <div className="flex items-center gap-4 text-[11px] font-medium uppercase tracking-[0.1em]">
           <span className="text-ink">Terminal</span>
