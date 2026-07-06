@@ -5,9 +5,12 @@ export default function TitleBar() {
   const ws = useWorkspace()
   const isMac = window.nalu?.platform === 'darwin'
   return (
-    <div className="drag flex h-11 shrink-0 items-center gap-2 px-3">
-      {/* clear the macOS traffic lights (they sit at x=16 + ~54px wide) */}
-      {isMac && <div className="w-[74px] shrink-0" />}
+    <div
+      className="drag flex h-11 shrink-0 items-center gap-2 px-3"
+      style={{ paddingLeft: isMac ? 92 : undefined }}
+    >
+      {/* inline padding above reserves space for the macOS traffic lights so
+          nothing overlaps them (a Tailwind arbitrary width can get JIT-purged). */}
       <button
         onClick={() => ws.setFilesOpen(!ws.filesOpen)}
         title="Toggle files (⌘B)"
