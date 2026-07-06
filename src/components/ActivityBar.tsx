@@ -11,7 +11,7 @@ const ITEMS = [
 export default function ActivityBar() {
   const ws = useWorkspace()
   return (
-    <div className="flex w-14 shrink-0 flex-col items-center rounded-2xl border border-glass/[0.08] bg-panel py-3">
+    <div className="flex w-14 shrink-0 flex-col items-center rounded-2xl border border-glass/[0.1] bg-panel/75 backdrop-blur-2xl py-3">
       {ITEMS.map(({ key, icon: Icon, title }) => {
         const activeV = ws.view === key
         return (

@@ -5,7 +5,7 @@ export default function TitleBar() {
   const ws = useWorkspace()
   const isMac = window.nalu?.platform === 'darwin'
   return (
-    <div className="drag flex h-10 shrink-0 items-center gap-3 bg-canvas px-3">
+    <div className="drag flex h-10 shrink-0 items-center gap-3 px-3">
       {/* leave room for the macOS traffic lights */}
       {isMac && <div className="w-16" />}
       <div className="flex items-center gap-2">

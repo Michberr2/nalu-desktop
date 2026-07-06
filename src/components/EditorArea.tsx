@@ -47,7 +47,7 @@ export default function EditorArea() {
   const ws = useWorkspace()
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-panel">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* tabs — soft rounded chips, Nalu website style */}
       {ws.tabs.length > 0 && (
         <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto px-2">

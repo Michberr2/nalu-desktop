@@ -23,6 +23,19 @@ type Ctx = {
   setTermOpen: (b: boolean) => void
   paletteOpen: boolean
   setPaletteOpen: (b: boolean) => void
+  routeName: string
+  setRouteName: (s: string) => void
+}
+
+// Exact same background-photo mapping the website uses (Workspace.bgFor): the
+// backdrop changes to match the active Nalu model/specialist.
+export function bgFor(name: string): string {
+  const n = name.toLowerCase()
+  if (n.includes('catalina') || !n) return '/bg/catalina.png'
+  if (/code|reason|cad|design|studio|vision/.test(n)) return '/bg/tech.png'
+  if (/financ|crypto|real estate|legal|health|marketing|hr|social|cre/.test(n)) return '/bg/business.png'
+  if (/image|video|slide|doc|sheet|math|science/.test(n)) return '/bg/creative.png'
+  return '/bg/tech.png'
 }
 
 const WorkspaceCtx = createContext<Ctx | null>(null)
@@ -35,6 +48,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [aiOpen, setAiOpen] = useState(true)
   const [termOpen, setTermOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [routeName, setRouteName] = useState('nalu-catalina')
 
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()
@@ -81,6 +95,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     openFile, setActive: setActivePath, closeTab, editActive, saveActive,
     view, setView,
     aiOpen, setAiOpen, termOpen, setTermOpen, paletteOpen, setPaletteOpen,
+    routeName, setRouteName,
   }
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>
 }

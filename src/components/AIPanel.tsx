@@ -52,7 +52,10 @@ export default function AIPanel() {
       await streamChat(history, {
         specialist: mode === 'chat' ? undefined : 'code',
         signal: ctrl.signal,
-        onRoute: (name) => setMsgs((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], specialist: name }; return c }),
+        onRoute: (name) => {
+          ws.setRouteName(name) // shift the background photo to match the active model, like the website
+          setMsgs((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], specialist: name }; return c })
+        },
         onDelta: (t) => {
           acc += t
           setMsgs((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], text: acc }; return c })
@@ -81,7 +84,7 @@ export default function AIPanel() {
   }
 
   return (
-    <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl border border-glass/[0.08] bg-panel">
+    <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/75 backdrop-blur-2xl">
       {/* header + mode switch */}
       <div className="flex items-center gap-2 border-b border-glass/[0.08] px-3 py-2.5">
         <img src="/wolf-icon.png" alt="" className="h-4 w-4 rounded" style={{ filter: 'brightness(0) invert(1)' }} />
