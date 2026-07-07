@@ -25,8 +25,19 @@ export default function FilesDrawer() {
     { key: 'git', icon: GitBranch, title: 'Source control' },
   ] as const
 
+  // drag-to-resize the drawer width
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = ws.filesWidth
+    const onMove = (ev: MouseEvent) => ws.setFilesWidth(startW + (ev.clientX - startX))
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); document.body.style.cursor = '' }
+    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+  }
+
   return (
-    <div className="flex w-60 shrink-0 flex-col overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/75 backdrop-blur-2xl">
+    <div className="relative flex shrink-0 flex-col overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/75 backdrop-blur-2xl" style={{ width: ws.filesWidth }}>
       <div className="flex items-center gap-1 px-2 py-2">
         <div className="flex rounded-lg border border-glass/[0.08] bg-panel2 p-0.5">
           {modes.map((m) => (
@@ -52,6 +63,11 @@ export default function FilesDrawer() {
       {ws.drawerMode === 'files' && <Explorer />}
       {ws.drawerMode === 'search' && <SearchPanel />}
       {ws.drawerMode === 'git' && <GitPanel />}
+
+      {/* drag handle to resize the drawer */}
+      <div onMouseDown={startResize} className="group absolute right-0 top-0 h-full w-1.5 cursor-col-resize" title="Drag to resize">
+        <div className="mx-auto h-full w-px bg-transparent group-hover:bg-gold/50" />
+      </div>
     </div>
   )
 }

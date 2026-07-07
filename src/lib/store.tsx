@@ -28,6 +28,8 @@ type Ctx = {
   refresh: () => void
   drawerMode: 'files' | 'search' | 'git'
   setDrawerMode: (m: 'files' | 'search' | 'git') => void
+  filesWidth: number
+  setFilesWidth: (w: number) => void
   reveal: { path: string; line: number } | null
   openAt: (path: string, name: string, line: number) => Promise<void>
 }
@@ -58,6 +60,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
   const [drawerMode, setDrawerMode] = useState<'files' | 'search' | 'git'>('files')
   const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null)
+  const [filesWidth, setFilesWidth] = useState(() => Number(localStorage.getItem('nalu-files-w')) || 240)
 
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()
@@ -107,6 +110,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     settingsOpen, setSettingsOpen, routeName, setRouteName,
     refreshKey, refresh,
     drawerMode, setDrawerMode, reveal, openAt,
+    filesWidth, setFilesWidth: (w: number) => { const c = Math.max(180, Math.min(560, w)); setFilesWidth(c); localStorage.setItem('nalu-files-w', String(c)) },
   }
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>
 }

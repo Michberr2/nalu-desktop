@@ -267,11 +267,9 @@ export default function NaluBar() {
             {msgs.length > 0 && !open && (
               <button onClick={() => setOpen(true)} className="rounded-lg px-2 py-1 text-[11px] text-dim hover:text-ink">{msgs.length} msgs ▴</button>
             )}
-            <div className="flex rounded-lg border border-glass/[0.08] bg-panel2 p-0.5 text-[11px]">
-              {([['chat', null], ['agent', null], ['computer', Monitor], ['edit', Pencil], ['terminal', Terminal]] as [Mode, typeof Monitor | null][]).map(([m, Icon]) => (
-                <button key={m} onClick={() => setMode(m)} title={m} className={`flex items-center gap-1 rounded-md px-2 py-0.5 capitalize ${mode === m ? 'bg-gold/90 text-[#15170f]' : 'text-dim hover:text-ink'}`}>
-                  {Icon ? <Icon size={11} /> : null}{m === 'computer' ? 'PC' : m}
-                </button>
+            <div className="flex rounded-full border border-glass/[0.08] bg-panel2 p-0.5 text-[11px]">
+              {([['chat', 'Chat'], ['agent', 'Agent'], ['computer', 'PC'], ['edit', 'Edit'], ['terminal', 'Terminal']] as [Mode, string][]).map(([m, label]) => (
+                <button key={m} onClick={() => setMode(m)} className={`rounded-full px-2.5 py-0.5 transition-colors ${mode === m ? 'bg-gold text-[#15170f]' : 'text-dim hover:text-ink'}`}>{label}</button>
               ))}
             </div>
             {busy ? (

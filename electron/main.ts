@@ -211,12 +211,17 @@ const osa = (script: string): Promise<{ ok: boolean; out: string }> =>
   })
 
 ipcMain.handle('pc:screenshot', async () => {
-  const tmp = path.join(os.tmpdir(), `nalu-shot-${Date.now()}.png`)
-  await new Promise<void>((res) => { const p = spawn('screencapture', ['-x', '-C', tmp]); p.on('close', () => res()); p.on('error', () => res()) })
+  const raw = path.join(os.tmpdir(), `nalu-shot-${Date.now()}.png`)
+  const small = raw.replace('.png', '.jpg')
+  await new Promise<void>((res) => { const p = spawn('screencapture', ['-x', '-C', raw]); p.on('close', () => res()); p.on('error', () => res()) })
+  // Downscale to a compact JPEG (max 1512px wide) — small payload = fast vision
+  // and well under the serverless body limit.
+  await new Promise<void>((res) => { const p = spawn('sips', ['-Z', '1512', '-s', 'format', 'jpeg', '-s', 'formatOptions', '72', raw, '--out', small]); p.on('close', () => res()); p.on('error', () => res()) })
   try {
-    const buf = await fs.readFile(tmp)
-    await fs.rm(tmp, { force: true })
-    return `data:image/png;base64,${buf.toString('base64')}`
+    const buf = await fs.readFile(small).catch(() => fs.readFile(raw))
+    await fs.rm(raw, { force: true }); await fs.rm(small, { force: true })
+    const mime = buf.length && small ? 'image/jpeg' : 'image/png'
+    return `data:${mime};base64,${buf.toString('base64')}`
   } catch { return '' }
 })
 ipcMain.handle('pc:screenSize', async () => {
