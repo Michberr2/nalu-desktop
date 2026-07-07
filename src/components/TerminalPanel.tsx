@@ -9,10 +9,14 @@ import * as monaco from 'monaco-editor'
 let counter = 0
 
 // One real pty-backed terminal. Kept mounted (hidden when inactive) so its
-// shell + scrollback survive tab switches.
+// shell + scrollback survive tab switches. Auto-focuses so you can type right
+// away, and auto-restarts if the shell ever exits.
 function Term({ id, active, folder, shell }: { id: string; active: boolean; folder: string | null; shell?: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const termRef = useRef<XTerm | null>(null)
+  const restartsRef = useRef(0)
+  const bornRef = useRef(0)
 
   useEffect(() => {
     const host = hostRef.current
@@ -23,23 +27,46 @@ function Term({ id, active, folder, shell }: { id: string; active: boolean; fold
       theme: { background: '#13151b', foreground: '#ededed', cursor: '#af8c56', selectionBackground: '#af8c5644', black: '#0b0c10', brightBlack: '#5f6672' },
       cursorBlink: true,
     })
+    termRef.current = term
     const fit = new FitAddon(); fitRef.current = fit
     term.loadAddon(fit); term.open(host); fit.fit()
-    void window.nalu.term.create(id, folder || '', shell)
+    let disposed = false
+
+    // Spawn (or respawn) the shell for this terminal.
+    const spawn = () => {
+      bornRef.current = Date.now()
+      void window.nalu.term.create(id, folder || '', shell).then(() => { term.focus(); const s = () => { fit.fit(); window.nalu.term.resize(id, term.cols, term.rows) }; setTimeout(s, 40) })
+    }
+
     const offData = window.nalu.term.onData(id, (d) => term.write(d))
-    const offExit = window.nalu.term.onExit(id, () => term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n'))
+    const offExit = window.nalu.term.onExit(id, () => {
+      if (disposed) return
+      const quick = Date.now() - bornRef.current < 2500
+      if (restartsRef.current < 4) {
+        restartsRef.current++
+        // If it died instantly, the login profile likely errored — retry without
+        // login next time so the user always gets a working shell.
+        term.write('\r\n\x1b[90m[restarting shell…]\x1b[0m\r\n')
+        setTimeout(() => { if (!disposed) spawn() }, quick ? 400 : 100)
+      } else {
+        term.write('\r\n\x1b[90m[shell exited — press ⌘` twice to reopen]\x1b[0m\r\n')
+      }
+    })
     term.onData((d) => window.nalu.term.input(id, d))
     const sync = () => { fit.fit(); window.nalu.term.resize(id, term.cols, term.rows) }
     const ro = new ResizeObserver(sync); ro.observe(host)
-    setTimeout(sync, 50)
-    return () => { offData(); offExit(); ro.disconnect(); void window.nalu.term.kill(id); term.dispose() }
+    spawn()
+    setTimeout(() => { sync(); term.focus() }, 60)
+
+    return () => { disposed = true; offData(); offExit(); ro.disconnect(); void window.nalu.term.kill(id); term.dispose() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // refit when this tab becomes visible
-  useEffect(() => { if (active) setTimeout(() => fitRef.current?.fit(), 30) }, [active])
+  // Refit AND focus when this tab becomes visible, so typing works immediately.
+  useEffect(() => { if (active) setTimeout(() => { fitRef.current?.fit(); termRef.current?.focus() }, 30) }, [active])
 
-  return <div ref={hostRef} className="h-full w-full px-2 py-1" style={{ display: active ? 'block' : 'none' }} />
+  // Click anywhere in the terminal focuses it (belt-and-suspenders for typing).
+  return <div ref={hostRef} onMouseDown={() => termRef.current?.focus()} className="h-full w-full px-2 py-1" style={{ display: active ? 'block' : 'none' }} />
 }
 
 function Problems() {
