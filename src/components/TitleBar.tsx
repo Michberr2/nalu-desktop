@@ -4,16 +4,8 @@ import wolfUrl from '../lib/wolf'
 
 export default function TitleBar() {
   const ws = useWorkspace()
-  // Detect macOS from the renderer directly — reliable, and independent of the
-  // preload bridge (window.nalu.platform came back undefined through contextBridge).
-  const isMac = /Mac/i.test(navigator.userAgent)
   return (
-    <div
-      className="drag flex h-11 shrink-0 items-center gap-2 px-3"
-      style={{ paddingLeft: isMac ? 92 : undefined }}
-    >
-      {/* inline padding above reserves space for the macOS traffic lights so
-          nothing overlaps them (a Tailwind arbitrary width can get JIT-purged). */}
+    <div className="drag flex h-11 shrink-0 items-center gap-2 px-3">
       <button
         onClick={() => ws.setFilesOpen(!ws.filesOpen)}
         title="Toggle files (⌘B)"

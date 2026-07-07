@@ -41,6 +41,10 @@ function Shell() {
         }}
       />
 
+      {/* thin top strip that holds ONLY the macOS window buttons (traffic
+          lights); the whole app header sits on the row below it. */}
+      <div className="drag h-[30px] shrink-0" />
+
       <TitleBar />
 
       {/* ONE interface: the only drawer is Files (left); the center is the

@@ -26,8 +26,10 @@ function createWindow() {
     show: false,
     backgroundColor: '#0b0c10',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    titleBarOverlay: process.platform === 'darwin' ? undefined : { color: '#11141c', symbolColor: '#ededed', height: 44 },
-    trafficLightPosition: { x: 16, y: 16 },
+    titleBarOverlay: process.platform === 'darwin' ? undefined : { color: '#11141c', symbolColor: '#ededed', height: 30 },
+    // Traffic lights live in their own thin strip at the very top; the app header
+    // sits on the row below them.
+    trafficLightPosition: { x: 14, y: 9 },
     icon: path.join(__dirname, '../build/wolf.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
