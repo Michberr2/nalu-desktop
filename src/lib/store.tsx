@@ -42,13 +42,18 @@ type Ctx = {
 
 // Exact same background-photo mapping the website uses (Workspace.bgFor): the
 // backdrop changes to match the active Nalu model/specialist.
+// IMPORTANT: use the Vite BASE_URL so the path is RELATIVE to the app — a bare
+// "/bg/…" resolves to the disk root under file:// in the packaged app and the
+// backgrounds vanish. BASE_URL is "./" in the build, "/" in dev — both correct.
 export function bgFor(name: string): string {
-  const n = name.toLowerCase()
-  if (n.includes('catalina') || !n) return '/bg/catalina.png'
-  if (/code|reason|cad|design|studio|vision/.test(n)) return '/bg/tech.png'
-  if (/financ|crypto|real estate|legal|health|marketing|hr|social|cre/.test(n)) return '/bg/business.png'
-  if (/image|video|slide|doc|sheet|math|science/.test(n)) return '/bg/creative.png'
-  return '/bg/tech.png'
+  const base = import.meta.env.BASE_URL || './'
+  const file =
+    (name && /code|reason|cad|design|studio|vision/.test(name.toLowerCase())) ? 'tech.png'
+    : (name && /financ|crypto|real estate|legal|health|marketing|hr|social|cre/.test(name.toLowerCase())) ? 'business.png'
+    : (name && /image|video|slide|doc|sheet|math|science/.test(name.toLowerCase())) ? 'creative.png'
+    : (!name || name.toLowerCase().includes('catalina')) ? 'catalina.png'
+    : 'tech.png'
+  return `${base}bg/${file}`
 }
 
 const WorkspaceCtx = createContext<Ctx | null>(null)

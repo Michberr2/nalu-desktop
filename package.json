@@ -1,6 +1,6 @@
 {
   "name": "nalu-desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Nalu Desktop — a clean, signed IDE that brings the whole Nalu app to your computer.",
   "author": "Nalu (n4lu.ai)",
   "main": "dist-electron/main.js",
@@ -14,16 +14,16 @@
     "dist:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
-    "@electron/rebuild": "^4.1.0",
+    "node-pty": "^1.1.0",
     "@monaco-editor/react": "^4.6.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "cmdk": "^1.0.4",
     "lucide-react": "^0.451.0",
     "monaco-editor": "^0.55.0",
-    "node-pty": "^1.1.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@electron/rebuild": "^4.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
@@ -54,15 +54,32 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/wolf.icns",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "identity": null,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "98N9B637F3"
+      },
       "target": [
         "dmg"
       ]
     },
     "dmg": {
-      "writeUpdateInfo": false
+      "writeUpdateInfo": false,
+      "contents": [
+        {
+          "x": 410,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 150,
+          "y": 190,
+          "type": "file"
+        }
+      ]
     },
     "win": {
       "icon": "build/wolf.ico",
