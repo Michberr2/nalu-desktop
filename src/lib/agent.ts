@@ -44,12 +44,13 @@ You MUST reply with EXACTLY one JSON action inside a \`\`\`json fence (one short
 
 STRATEGY — be fast, thorough, and DEADLY ACCURATE. Do NOT give up after one or two steps.
 1. WEB TASKS (reservations, email, forms, booking, posting) — DRIVE THE BROWSER with browse + read_page + page_js. This reads/acts on the real DOM and is far more reliable than screenshots. NEVER just "web search and report" — actually go to the site and complete the task, step by step, all the way to a confirmation.
-   - RESERVATIONS — go ALL THE WAY THROUGH:
-     a) browse the booking platform (https://www.opentable.com or https://resy.com), read_page.
-     b) page_js: type the restaurant + city into the search box and submit; read_page the results; open the restaurant.
-     c) page_js: SELECT the party size, the DATE, and the TIME the user asked for; click the available time slot; read_page each step to confirm what changed.
-     d) Continue through the reservation form (name/phone/email if already filled by the logged-in account), and click the final "Complete/Reserve/Book" button. read_page to confirm you see a confirmation. Only report "done" once you SEE the confirmation, or a specific blocker (e.g. login/OTP/captcha the user must clear, or the restaurant truly has no online booking — some, like Hillstone, use a call-ahead waitlist: then open their waitlist page and, if needed, {"tool":"open","target":"tel:PHONE"} to call).
-   - STANDING / RECURRING reservations: platforms don't offer "recurring" natively — so REPEAT the full booking flow once per requested date (e.g. every Friday 7pm for 4 people). Do them one at a time until all requested dates are booked, then report each confirmation.
+   - RESERVATIONS — DEFAULT IS BOOK FULLY ONLINE. Unless the user explicitly said "call", you MUST try to complete the booking online first and only fall back to phoning if online genuinely can't finish.
+     a) browse the booking platform (https://www.opentable.com — most restaurants incl. Hillstone are here; also https://resy.com), read_page.
+     b) page_js: type the restaurant + city into the search box and submit; read_page the results; open the restaurant's page.
+     c) page_js: SELECT the party size, the DATE, and the TIME the user asked for (or the nearest available); click the available time slot; read_page after each step to confirm what changed.
+     d) Continue through the reservation form (name/phone/email are usually pre-filled by the logged-in account) and click the final "Complete/Reserve/Book" button. read_page to confirm you SEE a confirmation. Report "done" ONLY when you see the confirmation.
+     e) FALLBACK TO CALLING — only after you've genuinely tried online and it can't complete (no online availability for that date/time, the restaurant isn't bookable online, or a step is truly blocked): then {"tool":"open","target":"tel:PHONE"} to call, and tell the user you're calling because online booking wasn't possible. If the user said "call" up front, skip straight to this.
+   - STANDING / RECURRING reservations: platforms don't offer "recurring" natively — so REPEAT the full online booking flow once per requested date (e.g. every Friday 7pm for 4 people), one at a time, until all requested dates are booked; then report each confirmation.
    - EMAIL: browse "https://mail.google.com", read_page, and use page_js/keys to read, compose, archive, or reorganize. For Mail.app, use applescript.
 2. NATIVE apps → applescript. System/CLI things → shell. These are instant and need no screenshot.
 3. Use "see"/"click" only for non-web GUI elements you can't reach through the DOM.
@@ -102,14 +103,18 @@ export async function runComputer(opts: {
     const url = await window.nalu.pc.screenshot()
     if (!url) return 'screenshot unavailable — Screen Recording permission may be off; use terminal/AppleScript instead.'
     onStep({ kind: 'screenshot', url })
+    // Tell the model the LOGICAL screen size so the (x,y) it reports are already
+    // in the coordinate space cliclick uses — clicks land precisely.
+    const sz = await window.nalu.pc.screenSize().catch(() => ({ w: 0, h: 0 }))
+    const dims = sz.w ? `The screen is ${sz.w}x${sz.h} points (top-left origin). Give every coordinate in THIS ${sz.w}x${sz.h} space. ` : ''
     let desc = ''
     try {
       await streamChat(
-        [imageMessage('Describe this Mac screen for an automation agent: what app/page is open, the key clickable elements and their approximate pixel coordinates (x,y), any text fields, and what the user would click next. Be concise and specific.', url)],
+        [imageMessage(`You are the eyes of a Mac automation agent. ${dims}Report, precisely: the app/window in focus; each clickable element (buttons, links, fields, menu items) with its LABEL and the (x,y) of its CENTER; and the single best next element to click for the task. Be exact with coordinates and concise.`, url)],
         { specialist: 'vision', signal, onDelta: (t) => (desc += t) },
       )
     } catch { desc = 'could not analyze the screenshot; use terminal/AppleScript.' }
-    return desc
+    return sz.w ? `[screen ${sz.w}x${sz.h}] ${desc}` : desc
   }
 
   const askPlanner = async (): Promise<string> => {
