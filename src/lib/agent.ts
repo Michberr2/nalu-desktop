@@ -12,6 +12,9 @@ export type PcTool =
   | { tool: 'browse'; url: string }
   | { tool: 'read_page' }
   | { tool: 'page_js'; code: string }
+  | { tool: 'click_el'; selector: string }
+  | { tool: 'type_text'; text: string }
+  | { tool: 'press'; key: string }
   | { tool: 'shell'; command: string }
   | { tool: 'applescript'; script: string }
   | { tool: 'type'; text: string }
@@ -34,7 +37,10 @@ You have a built-in NALU BROWSER (your own Chromium window you fully control —
 You MUST reply with EXACTLY one JSON action inside a \`\`\`json fence (one short sentence of reasoning before the fence is allowed, nothing after). The tools:
 {"tool":"browse","url":"https://..."}           // open a URL in the Nalu Browser (waits for load)
 {"tool":"read_page"}                             // READ the current page: title, url, visible text, and clickable elements. Use this to SEE web pages and to READ other people's posts/comments before you act.
-{"tool":"page_js","code":"..."}                  // run JavaScript IN the page to click/fill/submit. Use real selectors, e.g. document.querySelector('input[name="q"]').value='hi'; and to click, find the element by its text and call .click(). To submit a React input, set .value then dispatch an 'input' event so the app registers it.
+{"tool":"page_js","code":"..."}                  // run JavaScript IN the page to read/click/fill. Fast for normal sites.
+{"tool":"click_el","selector":"..."}             // REAL trusted mouse click on the element matching this CSS selector (use for login/search/booking on strict sites — passes most bot-walls that reject page_js clicks)
+{"tool":"type_text","text":"..."}                // REAL trusted typing into the focused field (click_el the field first)
+{"tool":"press","key":"Return"}                  // REAL key press: Return, Tab, Escape, Backspace, ArrowDown…
 {"tool":"open","target":"Mail"}                 // open an app by name (or a URL)
 {"tool":"applescript","script":"..."}           // control native apps: Mail, Calendar, Messages, Finder, System Events
 {"tool":"shell","command":"..."}                // run a terminal command
@@ -170,6 +176,9 @@ export async function runComputer(opts: {
       else if (action.tool === 'browse') { const ok = await window.nalu.pc.webOpen(action.url); if (ok) { const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }) } result = ok ? `opened ${action.url} in the Nalu Browser. Use read_page to see it.` : `could not open ${action.url}` }
       else if (action.tool === 'read_page') { result = await readPage(); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }) }
       else if (action.tool === 'page_js') { const r = await window.nalu.pc.webJs(action.code, true); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }); result = r.ok ? `ran. result: ${r.out.slice(0, 3000)}` : `page_js error: ${r.out.slice(0, 500)}` }
+      else if (action.tool === 'click_el') { const r = await window.nalu.pc.webClickSel(action.selector); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }); result = r.out }
+      else if (action.tool === 'type_text') { const r = await window.nalu.pc.webType(action.text); result = r.out }
+      else if (action.tool === 'press') { const r = await window.nalu.pc.webKey(action.key); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }); result = r.out }
       else if (action.tool === 'open') { result = (await window.nalu.pc.open(action.target)) ? `opened ${action.target}` : `could not open ${action.target}` }
       else if (action.tool === 'shell') { const r = await window.nalu.exec('', action.command); result = `exit ${r.code}\n${r.output.slice(0, 6000)}` }
       else if (action.tool === 'applescript') { const r = await window.nalu.pc.applescript(action.script); result = (r.ok ? 'ok ' : 'error ') + r.out.slice(0, 4000) }

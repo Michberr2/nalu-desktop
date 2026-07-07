@@ -44,6 +44,10 @@ const api = {
     webOpen: (url: string): Promise<boolean> => ipcRenderer.invoke('pc:webOpen', url),
     webJs: (code: string, wantResult: boolean): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:webJs', code, wantResult),
     webShot: (): Promise<string> => ipcRenderer.invoke('pc:webShot'),
+    // trusted (isTrusted=true) input into the Nalu Browser — passes most bot-walls
+    webClickSel: (selector: string): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:webClickSel', selector),
+    webType: (text: string): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:webType', text),
+    webKey: (key: string): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:webKey', key),
   },
 
   term: {

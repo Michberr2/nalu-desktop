@@ -135,9 +135,9 @@ export default function NaluBar() {
   const toolLabel = (a: AgentTool) => a.tool === 'read_file' ? `Read ${a.path}` : a.tool === 'list_dir' ? `List ${a.path}` : a.tool === 'search' ? `Search "${a.query}"` : a.tool === 'run' ? `Run: ${a.command}` : a.tool === 'write_file' ? `Edit ${a.path}` : 'Done'
 
   // Short human title for an action.
-  const pcLabel = (a: PcTool) => a.tool === 'browse' ? 'Open website' : a.tool === 'read_page' ? 'Read the page' : a.tool === 'page_js' ? 'Act on the page' : a.tool === 'open' ? `Open ${a.target}` : a.tool === 'shell' ? 'Run command' : a.tool === 'applescript' ? 'Control an app (AppleScript)' : a.tool === 'type' ? 'Type text' : a.tool === 'key' ? `Press ${a.combo}` : a.tool === 'click' ? `Click at ${a.x}, ${a.y}` : a.tool === 'see' ? 'Look at the screen' : 'Finish'
+  const pcLabel = (a: PcTool) => a.tool === 'browse' ? 'Open website' : a.tool === 'read_page' ? 'Read the page' : a.tool === 'page_js' ? 'Act on the page' : a.tool === 'click_el' ? 'Click element' : a.tool === 'type_text' ? 'Type text' : a.tool === 'press' ? `Press ${a.key}` : a.tool === 'open' ? `Open ${a.target}` : a.tool === 'shell' ? 'Run command' : a.tool === 'applescript' ? 'Control an app (AppleScript)' : a.tool === 'type' ? 'Type text' : a.tool === 'key' ? `Press ${a.combo}` : a.tool === 'click' ? `Click at ${a.x}, ${a.y}` : a.tool === 'see' ? 'Look at the screen' : 'Finish'
   // The exact thing being done — so you see (and can approve) precisely what runs.
-  const pcDetail = (a: PcTool): string => a.tool === 'browse' ? a.url : a.tool === 'page_js' ? a.code : a.tool === 'shell' ? a.command : a.tool === 'applescript' ? a.script : a.tool === 'type' ? a.text : a.tool === 'open' ? a.target : ''
+  const pcDetail = (a: PcTool): string => a.tool === 'browse' ? a.url : a.tool === 'page_js' ? a.code : a.tool === 'click_el' ? a.selector : a.tool === 'type_text' ? a.text : a.tool === 'shell' ? a.command : a.tool === 'applescript' ? a.script : a.tool === 'type' ? a.text : a.tool === 'open' ? a.target : ''
 
   return (
     <div className="shrink-0">

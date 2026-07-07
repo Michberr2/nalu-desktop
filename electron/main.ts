@@ -341,6 +341,49 @@ ipcMain.handle('pc:webShot', async () => {
   try { const img = await webWin.webContents.capturePage(); return img.toDataURL() } catch { return '' }
 })
 
+// TRUSTED input into the Nalu Browser via Chromium's input pipeline. These
+// produce isTrusted=true events (real mouse/keyboard), so bot-walls like Akamai
+// that reject JS-dispatched events accept them. This is how fortified sites
+// (OpenTable, LinkedIn) get driven without a human.
+function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)) }
+// Click the center of the element matching `selector` with a real mouse event.
+ipcMain.handle('pc:webClickSel', async (_e, selector: string) => {
+  if (!webWin || webWin.isDestroyed()) return { ok: false, out: 'no browser' }
+  try {
+    const box = await webWin.webContents.executeJavaScript(
+      `(function(){var el=document.querySelector(${JSON.stringify(selector)});if(!el)return null;el.scrollIntoView({block:'center'});var r=el.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,t:(el.innerText||el.value||el.placeholder||'').slice(0,40)};})()`, true,
+    )
+    if (!box) return { ok: false, out: 'element not found' }
+    const wc = webWin.webContents
+    wc.focus()
+    wc.sendInputEvent({ type: 'mouseMove', x: Math.round(box.x), y: Math.round(box.y) } as Electron.MouseInputEvent)
+    await sleep(40)
+    wc.sendInputEvent({ type: 'mouseDown', x: Math.round(box.x), y: Math.round(box.y), button: 'left', clickCount: 1 } as Electron.MouseInputEvent)
+    wc.sendInputEvent({ type: 'mouseUp', x: Math.round(box.x), y: Math.round(box.y), button: 'left', clickCount: 1 } as Electron.MouseInputEvent)
+    return { ok: true, out: `clicked "${box.t}"` }
+  } catch (e) { return { ok: false, out: e instanceof Error ? e.message : 'err' } }
+})
+// Type text as real key events into whatever is focused.
+ipcMain.handle('pc:webType', async (_e, text: string) => {
+  if (!webWin || webWin.isDestroyed()) return { ok: false, out: 'no browser' }
+  const wc = webWin.webContents
+  for (const ch of String(text)) {
+    wc.sendInputEvent({ type: 'char', keyCode: ch } as Electron.KeyboardInputEvent)
+    await sleep(18)
+  }
+  return { ok: true, out: `typed ${text.length} chars` }
+})
+// Press a named key (Return, Tab, Escape, Backspace, arrows…) as real events.
+ipcMain.handle('pc:webKey', async (_e, key: string) => {
+  if (!webWin || webWin.isDestroyed()) return { ok: false, out: 'no browser' }
+  const wc = webWin.webContents
+  wc.sendInputEvent({ type: 'keyDown', keyCode: key } as Electron.KeyboardInputEvent)
+  wc.sendInputEvent({ type: 'char', keyCode: key } as Electron.KeyboardInputEvent)
+  wc.sendInputEvent({ type: 'keyUp', keyCode: key } as Electron.KeyboardInputEvent)
+  await sleep(60)
+  return { ok: true, out: `pressed ${key}` }
+})
+
 // ---- Browser automation (drive Chrome/Safari via JS in the real page) -------
 // Reading and acting on the actual DOM is FAR more reliable than pixel-clicking
 // for web tasks (reservations, email, forms). Requires the browser to allow JS
