@@ -9,6 +9,7 @@ import NaluChat from './components/NaluChat'
 import CommandPalette from './components/CommandPalette'
 import StatusBar from './components/StatusBar'
 import SettingsModal from './components/SettingsModal'
+import UpdateBanner from './components/UpdateBanner'
 import { fetchMe } from './lib/naluApi'
 
 function Shell() {
@@ -54,6 +55,7 @@ function Shell() {
       <div className="drag h-[30px] shrink-0" />
 
       <TitleBar />
+      <UpdateBanner />
 
       {/* Two interchangeable faces: NALU (website-like chat + your Studio
           conversations) and IDE (files + editor + terminal + Nalu prompt bar). */}

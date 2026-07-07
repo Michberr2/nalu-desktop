@@ -15,6 +15,7 @@ const api = {
   search: (root: string, query: string): Promise<Array<{ file: string; rel: string; line: number; text: string }>> =>
     ipcRenderer.invoke('fs:search', root, query),
   exec: (cwd: string, command: string): Promise<{ code: number; output: string }> => ipcRenderer.invoke('sys:exec', cwd, command),
+  appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
 
   git: {
     status: (cwd: string): Promise<{ repo: boolean; branch?: string; files?: Array<{ x: string; y: string; path: string }> }> =>

@@ -197,6 +197,9 @@ ipcMain.handle('sys:exec', async (_e, cwd: string, command: string) => {
   })
 })
 
+// App version (for the auto-update check) + open the download page.
+ipcMain.handle('app:version', () => app.getVersion())
+
 // ---- Permissions — Accessibility (keystrokes/clicks/menu automation) and
 // Screen Recording (screenshots). Both are one-time macOS grants. ------------
 ipcMain.handle('pc:permissions', (_e, prompt: boolean) => {
@@ -473,8 +476,12 @@ function resolveShell(kind?: string): { path: string; args: string[] } {
   }
   const list = candidates[kind || ''] || []
   for (const c of list) if (c.path.includes('.exe') || c.path === 'pwsh' || c.path === 'cmd.exe' || exists(c.path)) return c
-  // default per-platform
-  return win ? { path: 'powershell.exe', args: [] } : { path: process.env.SHELL || '/bin/zsh', args: ['-l'] }
+  // Default: prefer zsh (macOS's modern default — avoids bash's noisy
+  // "default interactive shell is now zsh" deprecation notice), then the user's
+  // $SHELL, then bash/sh.
+  if (win) return { path: 'powershell.exe', args: [] }
+  const def = ['/bin/zsh', '/usr/bin/zsh', process.env.SHELL || '', '/bin/bash', '/bin/sh'].find((p) => p && exists(p)) || '/bin/zsh'
+  return { path: def, args: def.endsWith('/sh') ? [] : ['-l'] }
 }
 
 // Report which shells are actually installed, for the UI picker.
@@ -495,7 +502,9 @@ ipcMain.handle('term:create', async (e, id: string, cwd: string, shellKind?: str
     cols: 80,
     rows: 24,
     cwd: cwd || os.homedir(),
-    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+    // Silence bash's macOS deprecation banner (in case bash is chosen) and point
+    // $SHELL at the actual shell so subshells behave.
+    env: { ...process.env, TERM: 'xterm-256color', SHELL: shellPath, BASH_SILENCE_DEPRECATION_WARNING: '1', COLORTERM: 'truecolor' } as Record<string, string>,
   }) as unknown as PtyProc
   shells[id] = proc
   proc.onData((data) => e.sender.send(`term:data:${id}`, data))
