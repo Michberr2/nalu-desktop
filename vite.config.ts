@@ -24,6 +24,7 @@ export default defineConfig({
     ]),
     renderer(),
   ],
+  base: './', // relative asset URLs so everything loads under file:// (packaged app)
   build: { outDir: 'dist' },
   clearScreen: false,
 })

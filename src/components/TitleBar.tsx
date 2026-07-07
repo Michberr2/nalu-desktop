@@ -1,9 +1,12 @@
 import { Search, PanelLeft, TerminalSquare, Settings } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
+import wolfUrl from '../lib/wolf'
 
 export default function TitleBar() {
   const ws = useWorkspace()
-  const isMac = window.nalu?.platform === 'darwin'
+  // Detect macOS from the renderer directly — reliable, and independent of the
+  // preload bridge (window.nalu.platform came back undefined through contextBridge).
+  const isMac = /Mac/i.test(navigator.userAgent)
   return (
     <div
       className="drag flex h-11 shrink-0 items-center gap-2 px-3"
@@ -19,7 +22,7 @@ export default function TitleBar() {
         <PanelLeft size={16} />
       </button>
       <div className="flex shrink-0 items-center gap-2 pl-0.5">
-        <img src="/wolf-icon.png" alt="Nalu" className="h-4 w-4 rounded" style={{ filter: 'brightness(0) invert(1)' }} />
+        <img src={wolfUrl} alt="Nalu" className="h-5 w-5 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
         <span className="text-[13px] font-semibold tracking-tight text-ink">Nalu</span>
       </div>
       <button

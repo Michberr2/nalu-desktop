@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { ArrowUp, Check, Square, ChevronDown, X } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import { streamChat, type WireMessage } from '../lib/naluApi'
+import wolfUrl from '../lib/wolf'
 
 type Msg = { role: 'user' | 'assistant'; text: string; specialist?: string; proposed?: string }
 type Mode = 'chat' | 'agent' | 'edit'
@@ -116,7 +117,7 @@ export default function NaluBar() {
       {/* the always-on prompt bar */}
       <div className="rounded-2xl border border-glass/[0.1] bg-panel/80 p-2 backdrop-blur-2xl">
         <div className="flex items-end gap-2">
-          <img src="/wolf-icon.png" alt="" className="mb-1 ml-1 h-5 w-5 shrink-0 rounded" style={{ filter: 'brightness(0) invert(1)' }} />
+          <img src={wolfUrl} alt="" className="mb-1 ml-1 h-5 w-5 shrink-0 rounded" style={{ filter: 'brightness(0) invert(1)' }} />
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
