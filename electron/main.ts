@@ -158,8 +158,15 @@ ipcMain.handle('git:status', async (_e, cwd: string) => {
   const files = status.out.split('\n').filter(Boolean).map((l) => ({ x: l[0], y: l[1], path: l.slice(3) }))
   return { repo: true, branch: branch.out.trim(), files }
 })
-ipcMain.handle('git:diff', async (_e, cwd: string, file?: string) =>
-  (await git(cwd, file ? ['diff', 'HEAD', '--', file] : ['diff', 'HEAD'])).out)
+ipcMain.handle('git:diff', async (_e, cwd: string, file?: string) => {
+  if (!file) return (await git(cwd, ['diff', 'HEAD'])).out
+  // Tracked file: normal diff vs HEAD. If empty, it may be a NEW/untracked file —
+  // show its whole content as an added diff (like VS Code does).
+  const tracked = (await git(cwd, ['diff', 'HEAD', '--', file])).out
+  if (tracked.trim()) return tracked
+  const untracked = await git(cwd, ['diff', '--no-index', '--', '/dev/null', file])
+  return untracked.out || tracked
+})
 ipcMain.handle('git:stage', async (_e, cwd: string, file: string) => (await git(cwd, ['add', '--', file])).ok)
 ipcMain.handle('git:unstage', async (_e, cwd: string, file: string) => (await git(cwd, ['reset', 'HEAD', '--', file])).ok)
 ipcMain.handle('git:commit', async (_e, cwd: string, msg: string) => (await git(cwd, ['commit', '-m', msg])).out)

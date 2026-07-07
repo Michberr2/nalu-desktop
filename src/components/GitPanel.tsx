@@ -21,6 +21,14 @@ export default function GitPanel() {
     setSt(s); setStat(n)
   }, [ws.folder])
   useEffect(() => { void load() }, [load, ws.refreshKey])
+  // Live source-control: poll so edits/new files show up on their own (VS Code-style).
+  useEffect(() => { const t = setInterval(() => void load(), 2000); return () => clearInterval(t) }, [load])
+  // Keep an open diff fresh as you keep typing.
+  useEffect(() => {
+    if (!diff || !ws.folder) return
+    const t = setInterval(async () => { const txt = await window.nalu.git.diff(ws.folder!, diff.path); if (txt) setDiff((d) => (d && d.path === diff.path ? { ...d, text: txt } : d)) }, 2000)
+    return () => clearInterval(t)
+  }, [diff, ws.folder])
 
   const staged = (st.files || []).filter((f) => f.x !== ' ' && f.x !== '?')
   const changed = (st.files || []).filter((f) => f.x === ' ' || f.x === '?' || f.y !== ' ')

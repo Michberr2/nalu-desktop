@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { currentUser, type NaluUser } from './naluApi'
 
 export type Tab = { path: string; name: string; content: string; dirty: boolean }
@@ -108,9 +108,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!t) return
     await window.nalu.writeFile(t.path, t.content)
     setTabs((prev) => prev.map((x) => (x.path === t.path ? { ...x, dirty: false } : x)))
-  }, [tabs, activePath])
+    refresh() // update the git "Changes" view so edits show immediately
+  }, [tabs, activePath, refresh])
 
   const active = useMemo(() => tabs.find((t) => t.path === activePath) ?? null, [tabs, activePath])
+
+  // Auto-save (VS Code "afterDelay"): 700ms after the last edit, persist the file
+  // so your changes always flow to disk + the Source Control view.
+  useEffect(() => {
+    const t = tabs.find((x) => x.path === activePath)
+    if (!t || !t.dirty) return
+    const id = setTimeout(() => { void saveActive() }, 700)
+    return () => clearTimeout(id)
+  }, [tabs, activePath, saveActive])
 
   const value: Ctx = {
     folder, openFolder,
