@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { X, Plus, AlertCircle } from 'lucide-react'
+import { X, Plus, AlertCircle, ChevronDown } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import * as monaco from 'monaco-editor'
 
@@ -10,7 +10,7 @@ let counter = 0
 
 // One real pty-backed terminal. Kept mounted (hidden when inactive) so its
 // shell + scrollback survive tab switches.
-function Term({ id, active, folder }: { id: string; active: boolean; folder: string | null }) {
+function Term({ id, active, folder, shell }: { id: string; active: boolean; folder: string | null; shell?: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
 
@@ -25,7 +25,7 @@ function Term({ id, active, folder }: { id: string; active: boolean; folder: str
     })
     const fit = new FitAddon(); fitRef.current = fit
     term.loadAddon(fit); term.open(host); fit.fit()
-    void window.nalu.term.create(id, folder || '')
+    void window.nalu.term.create(id, folder || '', shell)
     const offData = window.nalu.term.onData(id, (d) => term.write(d))
     const offExit = window.nalu.term.onExit(id, () => term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n'))
     term.onData((d) => window.nalu.term.input(id, d))
@@ -64,16 +64,24 @@ function Problems() {
   )
 }
 
+type TermDef = { id: string; shell: string }
+
 export default function TerminalPanel() {
   const ws = useWorkspace()
-  const [terms, setTerms] = useState<string[]>(() => [`t${++counter}`])
-  const [activeTerm, setActiveTerm] = useState(() => terms[0])
+  const [avail, setAvail] = useState<string[]>([])
+  const [defaultShell, setDefaultShell] = useState('zsh')
+  const [terms, setTerms] = useState<TermDef[]>(() => [{ id: `t${++counter}`, shell: '' }])
+  const [activeTerm, setActiveTerm] = useState(() => terms[0].id)
   const [view, setView] = useState<'terminal' | 'problems' | 'output'>('terminal')
+  const [pickerOpen, setPickerOpen] = useState(false)
 
-  const addTerm = () => { const id = `t${++counter}`; setTerms((p) => [...p, id]); setActiveTerm(id); setView('terminal') }
+  useEffect(() => { window.nalu.term.shells().then((s) => { setAvail(s); if (s[0]) setDefaultShell(s[0]) }) }, [])
+
+  const addTerm = (shell = defaultShell) => { const id = `t${++counter}`; setTerms((p) => [...p, { id, shell }]); setActiveTerm(id); setView('terminal'); setPickerOpen(false) }
   const closeTerm = (id: string) => {
-    setTerms((p) => { const next = p.filter((t) => t !== id); if (next.length === 0) { ws.setTermOpen(false); return p } setActiveTerm((cur) => (cur === id ? next[next.length - 1] : cur)); return next })
+    setTerms((p) => { const next = p.filter((t) => t.id !== id); if (next.length === 0) { ws.setTermOpen(false); return p } setActiveTerm((cur) => (cur === id ? next[next.length - 1].id : cur)); return next })
   }
+  const shellLabel = (s: string) => s ? s.replace('git-bash', 'Git Bash').replace('powershell', 'PowerShell').replace(/^\w/, (c) => c.toUpperCase()) : 'Default'
 
   const Tab = ({ id, label, on }: { id: string; label: string; on: boolean }) => (
     <button onClick={() => { setView(id as 'terminal' | 'problems' | 'output') }} className={`px-1 text-[11px] font-medium uppercase tracking-[0.1em] ${on ? 'text-ink' : 'text-dim hover:text-ink'}`}>{label}</button>
@@ -86,21 +94,30 @@ export default function TerminalPanel() {
         <Tab id="problems" label="Problems" on={view === 'problems'} />
         <Tab id="output" label="Output" on={view === 'output'} />
         {view === 'terminal' && (
-          <div className="ml-2 flex items-center gap-1">
-            {terms.map((id, i) => (
-              <span key={id} className={`group flex items-center rounded-md px-1.5 py-0.5 text-[10px] ${activeTerm === id ? 'bg-glass/10 text-ink' : 'text-dim hover:text-ink'}`}>
-                <button onClick={() => setActiveTerm(id)}>zsh {i + 1}</button>
-                {terms.length > 1 && <button onClick={() => closeTerm(id)} className="ml-1 opacity-0 group-hover:opacity-100"><X size={9} /></button>}
+          <div className="relative ml-2 flex items-center gap-1">
+            {terms.map((t) => (
+              <span key={t.id} className={`group flex items-center rounded-md px-1.5 py-0.5 text-[10px] ${activeTerm === t.id ? 'bg-glass/10 text-ink' : 'text-dim hover:text-ink'}`}>
+                <button onClick={() => setActiveTerm(t.id)}>{shellLabel(t.shell)}</button>
+                {terms.length > 1 && <button onClick={() => closeTerm(t.id)} className="ml-1 opacity-0 group-hover:opacity-100"><X size={9} /></button>}
               </span>
             ))}
-            <button onClick={addTerm} title="New terminal" className="rounded p-0.5 text-dim hover:bg-glass/10 hover:text-ink"><Plus size={12} /></button>
+            {/* New-terminal split button: click = default shell; caret = pick type */}
+            <button onClick={() => addTerm()} title="New terminal" className="rounded p-0.5 text-dim hover:bg-glass/10 hover:text-ink"><Plus size={12} /></button>
+            <button onClick={() => setPickerOpen((o) => !o)} title="Choose shell" className="rounded p-0.5 text-dim hover:bg-glass/10 hover:text-ink"><ChevronDown size={11} /></button>
+            {pickerOpen && (
+              <div className="absolute right-0 top-6 z-20 min-w-[120px] overflow-hidden rounded-lg border border-glass/[0.12] bg-panel2 py-1 shadow-xl">
+                {(avail.length ? avail : ['zsh', 'bash', 'sh']).map((s) => (
+                  <button key={s} onClick={() => addTerm(s)} className="block w-full px-3 py-1.5 text-left text-[11px] text-dim hover:bg-glass/10 hover:text-ink">{shellLabel(s)}</button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         <button onClick={() => ws.setTermOpen(false)} className="ml-auto rounded p-0.5 text-dim hover:bg-glass/10 hover:text-ink"><X size={13} /></button>
       </div>
       <div className="min-h-0 flex-1">
         <div className="h-full" style={{ display: view === 'terminal' ? 'block' : 'none' }}>
-          {terms.map((id) => <Term key={id} id={id} active={view === 'terminal' && activeTerm === id} folder={ws.folder} />)}
+          {terms.map((t) => <Term key={t.id} id={t.id} active={view === 'terminal' && activeTerm === t.id} folder={ws.folder} shell={t.shell} />)}
         </div>
         {view === 'problems' && <Problems />}
         {view === 'output' && <div className="flex h-full items-center justify-center text-[12px] text-dim">Output — build &amp; task logs appear here.</div>}

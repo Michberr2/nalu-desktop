@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences } from 'electron'
 import { promises as fs } from 'node:fs'
+import * as fsSync from 'node:fs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
@@ -245,16 +246,35 @@ ipcMain.handle('pc:screenSize', async () => {
   const m = r.out.match(/(\d+), (\d+), (\d+), (\d+)/)
   return m ? { w: +m[3], h: +m[4] } : { w: 1440, h: 900 }
 })
+// Locate cliclick (Homebrew installs to /opt/homebrew/bin on Apple Silicon,
+// /usr/local/bin on Intel), auto-installing it once via brew if missing so
+// precise pixel-clicks work out of the box.
+let cliclickPath: string | null = null
+let triedInstall = false
+async function ensureCliclick(): Promise<string | null> {
+  if (cliclickPath) return cliclickPath
+  for (const p of ['/opt/homebrew/bin/cliclick', '/usr/local/bin/cliclick', 'cliclick']) {
+    if (p === 'cliclick' || fsSync.existsSync(p)) { if (p === 'cliclick' || fsSync.existsSync(p)) { cliclickPath = p; if (p !== 'cliclick') return p } }
+  }
+  if (fsSync.existsSync('/opt/homebrew/bin/cliclick')) { cliclickPath = '/opt/homebrew/bin/cliclick'; return cliclickPath }
+  if (fsSync.existsSync('/usr/local/bin/cliclick')) { cliclickPath = '/usr/local/bin/cliclick'; return cliclickPath }
+  if (!triedInstall) {
+    triedInstall = true
+    const brew = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'].find((b) => fsSync.existsSync(b))
+    if (brew) {
+      await new Promise<void>((res) => { const p = spawn(brew, ['install', 'cliclick'], { env: process.env }); p.on('close', () => res()); p.on('error', () => res()) })
+      for (const p of ['/opt/homebrew/bin/cliclick', '/usr/local/bin/cliclick']) if (fsSync.existsSync(p)) { cliclickPath = p; return p }
+    }
+  }
+  return null
+}
 ipcMain.handle('pc:click', async (_e, x: number, y: number, dbl?: boolean) => {
-  // uses cliclick if present (precise), else AppleScript fallback
+  const bin = await ensureCliclick()
+  if (!bin) return false // no cliclick and couldn't install → caller uses keys/DOM
   const cmd = dbl ? `dc:${x},${y}` : `c:${x},${y}`
-  const r = await new Promise<{ ok: boolean; out: string }>((res) => {
-    const p = spawn('cliclick', [cmd]); let o = ''; p.stdout.on('data', d => o += d); p.stderr.on('data', d => o += d)
-    p.on('close', c => res({ ok: c === 0, out: o })); p.on('error', () => res({ ok: false, out: 'no-cliclick' }))
+  return await new Promise<boolean>((res) => {
+    const p = spawn(bin, [cmd]); p.on('close', (c) => res(c === 0)); p.on('error', () => res(false))
   })
-  if (r.ok) return true
-  // fallback: AppleScript can't move the cursor natively; report so the model uses keys/menus instead
-  return false
 })
 ipcMain.handle('pc:type', async (_e, text: string) => {
   const esc = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -274,8 +294,11 @@ ipcMain.handle('pc:key', async (_e, combo: string) => {
 })
 ipcMain.handle('pc:applescript', async (_e, script: string) => await osa(script))
 ipcMain.handle('pc:open', async (_e, target: string) => {
-  // an app name or a URL
-  return await new Promise<boolean>((res) => { const p = spawn('open', /^https?:\/\//.test(target) ? [target] : ['-a', target]); p.on('close', c => res(c === 0)); p.on('error', () => res(false)) })
+  // A URL (http, tel:, mailto:, facetime:, or anything with a scheme) opens with
+  // its default handler; a bare name is treated as an app.
+  const isUrl = /^[a-z][a-z0-9+.-]*:/i.test(target)
+  const args = isUrl ? [target] : ['-a', target]
+  return await new Promise<boolean>((res) => { const p = spawn('open', args); p.on('close', c => res(c === 0)); p.on('error', () => res(false)) })
 })
 
 // ---- Browser automation (drive Chrome/Safari via JS in the real page) -------
@@ -351,10 +374,40 @@ ipcMain.handle('pc:browserOpen', async (_e, url: string) => {
 type PtyProc = { write(d: string): void; resize(c: number, r: number): void; kill(): void; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void }
 const shells: Record<string, PtyProc> = {}
 
-ipcMain.handle('term:create', async (e, id: string, cwd: string) => {
+// Resolve a friendly shell name ('zsh','bash','fish','powershell','git-bash',
+// 'sh') to an executable + login args, only if it exists on this machine.
+function resolveShell(kind?: string): { path: string; args: string[] } {
+  const win = process.platform === 'win32'
+  const exists = (p: string) => { try { return fsSync.existsSync(p) } catch { return false } }
+  const candidates: Record<string, { path: string; args: string[] }[]> = {
+    zsh: [{ path: '/bin/zsh', args: ['-l'] }, { path: '/usr/bin/zsh', args: ['-l'] }],
+    bash: [{ path: '/bin/bash', args: ['-l'] }, { path: '/usr/bin/bash', args: ['-l'] }, { path: '/opt/homebrew/bin/bash', args: ['-l'] }],
+    fish: [{ path: '/opt/homebrew/bin/fish', args: ['-l'] }, { path: '/usr/local/bin/fish', args: ['-l'] }, { path: '/usr/bin/fish', args: ['-l'] }],
+    sh: [{ path: '/bin/sh', args: [] }],
+    powershell: [{ path: 'powershell.exe', args: [] }, { path: 'pwsh', args: [] }, { path: '/opt/homebrew/bin/pwsh', args: [] }, { path: '/usr/local/bin/pwsh', args: [] }],
+    'git-bash': [{ path: 'C:/Program Files/Git/bin/bash.exe', args: ['-l', '-i'] }],
+    cmd: [{ path: 'cmd.exe', args: [] }],
+  }
+  const list = candidates[kind || ''] || []
+  for (const c of list) if (c.path.includes('.exe') || c.path === 'pwsh' || c.path === 'cmd.exe' || exists(c.path)) return c
+  // default per-platform
+  return win ? { path: 'powershell.exe', args: [] } : { path: process.env.SHELL || '/bin/zsh', args: ['-l'] }
+}
+
+// Report which shells are actually installed, for the UI picker.
+ipcMain.handle('term:shells', () => {
+  const win = process.platform === 'win32'
+  const all = win ? ['powershell', 'cmd', 'git-bash'] : ['zsh', 'bash', 'fish', 'sh']
+  return all.filter((k) => {
+    const r = resolveShell(k)
+    return win ? true : (() => { try { return fsSync.existsSync(r.path) } catch { return false } })()
+  })
+})
+
+ipcMain.handle('term:create', async (e, id: string, cwd: string, shellKind?: string) => {
   const pty = await import('node-pty')
-  const shellPath = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh'
-  const proc = pty.spawn(shellPath, [], {
+  const { path: shellPath, args } = resolveShell(shellKind)
+  const proc = pty.spawn(shellPath, args, {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,

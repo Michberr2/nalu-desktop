@@ -42,13 +42,19 @@ You MUST reply with EXACTLY one JSON action inside a \`\`\`json fence (one short
 {"tool":"click","x":100,"y":200}                // click screen coordinates from a "see" description
 {"tool":"done","summary":"..."}                 // task complete (or report the outcome/blocker)
 
-STRATEGY — be fast, thorough, and DEADLY ACCURATE. Do NOT give up after one search.
-1. WEB TASKS (reservations, email, forms, booking, posting) — DRIVE THE BROWSER with browse + read_page + page_js. This reads/acts on the real DOM and is far more reliable than screenshots. NEVER just "web search and report" — actually go to the site and do it.
-   - RESERVATIONS: try the real booking platforms — browse "https://www.opentable.com", read_page, use page_js to search the restaurant + city, read the results, and book. Also try "https://resy.com". If a specific restaurant genuinely has no online booking (some don't), go to their official site's reservations/waitlist page and use it; only then report the exact next step (e.g. the number to call) — but exhaust the online options first.
-   - EMAIL: browse "https://mail.google.com", read_page, and use page_js/keys to read, compose, archive, or reorganize. For the Mail.app, use applescript.
+STRATEGY — be fast, thorough, and DEADLY ACCURATE. Do NOT give up after one or two steps.
+1. WEB TASKS (reservations, email, forms, booking, posting) — DRIVE THE BROWSER with browse + read_page + page_js. This reads/acts on the real DOM and is far more reliable than screenshots. NEVER just "web search and report" — actually go to the site and complete the task, step by step, all the way to a confirmation.
+   - RESERVATIONS — go ALL THE WAY THROUGH:
+     a) browse the booking platform (https://www.opentable.com or https://resy.com), read_page.
+     b) page_js: type the restaurant + city into the search box and submit; read_page the results; open the restaurant.
+     c) page_js: SELECT the party size, the DATE, and the TIME the user asked for; click the available time slot; read_page each step to confirm what changed.
+     d) Continue through the reservation form (name/phone/email if already filled by the logged-in account), and click the final "Complete/Reserve/Book" button. read_page to confirm you see a confirmation. Only report "done" once you SEE the confirmation, or a specific blocker (e.g. login/OTP/captcha the user must clear, or the restaurant truly has no online booking — some, like Hillstone, use a call-ahead waitlist: then open their waitlist page and, if needed, {"tool":"open","target":"tel:PHONE"} to call).
+   - STANDING / RECURRING reservations: platforms don't offer "recurring" natively — so REPEAT the full booking flow once per requested date (e.g. every Friday 7pm for 4 people). Do them one at a time until all requested dates are booked, then report each confirmation.
+   - EMAIL: browse "https://mail.google.com", read_page, and use page_js/keys to read, compose, archive, or reorganize. For Mail.app, use applescript.
 2. NATIVE apps → applescript. System/CLI things → shell. These are instant and need no screenshot.
-3. Use "see"/"click" only for non-web GUI elements you can't reach otherwise.
-Work autonomously and persistently toward the goal. NEVER reply with prose only — ALWAYS emit a JSON action. When truly done (success OR a real blocker with the concrete next step), use "done".`
+3. Use "see"/"click" only for non-web GUI elements you can't reach through the DOM.
+4. If read_page/page_js says browser JS is disabled, tell the user (via done) the one-time toggle to flip, then stop — you can't proceed on the web without it.
+Persist across MANY steps (booking can take 8-15). NEVER reply with prose only — ALWAYS emit a JSON action. Report "done" only on a confirmed result or a concrete blocker.`
 
 // Robust parse: fenced json, bare json, or the first {...}; tolerant of extra prose.
 function parsePc(text: string): { thought: string; action: PcTool | null } {
@@ -72,7 +78,7 @@ export async function runComputer(opts: {
   maxSteps?: number
 }): Promise<void> {
   const { task, onStep, approve, signal } = opts
-  const maxSteps = opts.maxSteps ?? 22
+  const maxSteps = opts.maxSteps ?? 40
   // PLANNING uses the code/reasoning model (reliable at the JSON protocol); the
   // vision model is used ONLY to describe a screenshot when we need to "see".
   const history: WireMessage[] = [

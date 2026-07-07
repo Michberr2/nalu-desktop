@@ -43,7 +43,8 @@ const api = {
   },
 
   term: {
-    create: (id: string, cwd: string): Promise<boolean> => ipcRenderer.invoke('term:create', id, cwd),
+    shells: (): Promise<string[]> => ipcRenderer.invoke('term:shells'),
+    create: (id: string, cwd: string, shell?: string): Promise<boolean> => ipcRenderer.invoke('term:create', id, cwd, shell),
     input: (id: string, data: string): void => ipcRenderer.send('term:input', id, data),
     resize: (id: string, cols: number, rows: number): void => ipcRenderer.send('term:resize', id, cols, rows),
     kill: (id: string): Promise<boolean> => ipcRenderer.invoke('term:kill', id),
