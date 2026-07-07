@@ -15,7 +15,8 @@ export default function SettingsModal() {
           <button onClick={() => ws.setSettingsOpen(false)} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={16} /></button>
         </div>
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-dim">Nalu account</div>
-        <p className="mb-2 text-[12px] leading-relaxed text-dim">Sign in at n4lu.ai, then paste your session token so Nalu AI works here.</p>
+        <p className="mb-2 text-[12px] leading-relaxed text-dim">Bring your Nalu (train) AI into the desktop: sign in, then paste your session token. This connects the same chat, specialists, Studio, and computer control you use on the web.</p>
+        <button onClick={() => window.open('https://n4lu.ai', '_blank')} className="mb-2 w-full rounded-lg border border-glass/[0.14] bg-glass/[0.05] px-3 py-2 text-[12px] font-medium text-gold hover:bg-glass/10">Open n4lu.ai to sign in →</button>
         <input
           value={tok}
           onChange={(e) => setTok(e.target.value)}

@@ -19,10 +19,23 @@ const api = {
   git: {
     status: (cwd: string): Promise<{ repo: boolean; branch?: string; files?: Array<{ x: string; y: string; path: string }> }> =>
       ipcRenderer.invoke('git:status', cwd),
-    diff: (cwd: string, file: string): Promise<string> => ipcRenderer.invoke('git:diff', cwd, file),
+    diff: (cwd: string, file?: string): Promise<string> => ipcRenderer.invoke('git:diff', cwd, file),
     stage: (cwd: string, file: string): Promise<boolean> => ipcRenderer.invoke('git:stage', cwd, file),
     unstage: (cwd: string, file: string): Promise<boolean> => ipcRenderer.invoke('git:unstage', cwd, file),
     commit: (cwd: string, msg: string): Promise<string> => ipcRenderer.invoke('git:commit', cwd, msg),
+    stat: (cwd: string): Promise<{ added: number; removed: number }> => ipcRenderer.invoke('git:stat', cwd),
+    commitPush: (cwd: string, msg: string): Promise<{ commit: string; push: string; ok: boolean }> => ipcRenderer.invoke('git:commitPush', cwd, msg),
+  },
+
+  // Computer control — the AI operates the whole Mac.
+  pc: {
+    screenshot: (): Promise<string> => ipcRenderer.invoke('pc:screenshot'),
+    screenSize: (): Promise<{ w: number; h: number }> => ipcRenderer.invoke('pc:screenSize'),
+    click: (x: number, y: number, dbl?: boolean): Promise<boolean> => ipcRenderer.invoke('pc:click', x, y, dbl),
+    type: (text: string): Promise<boolean> => ipcRenderer.invoke('pc:type', text),
+    key: (combo: string): Promise<boolean> => ipcRenderer.invoke('pc:key', combo),
+    applescript: (script: string): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:applescript', script),
+    open: (target: string): Promise<boolean> => ipcRenderer.invoke('pc:open', target),
   },
 
   term: {

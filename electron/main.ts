@@ -157,10 +157,28 @@ ipcMain.handle('git:status', async (_e, cwd: string) => {
   const files = status.out.split('\n').filter(Boolean).map((l) => ({ x: l[0], y: l[1], path: l.slice(3) }))
   return { repo: true, branch: branch.out.trim(), files }
 })
-ipcMain.handle('git:diff', async (_e, cwd: string, file: string) => (await git(cwd, ['diff', '--', file])).out)
+ipcMain.handle('git:diff', async (_e, cwd: string, file?: string) =>
+  (await git(cwd, file ? ['diff', 'HEAD', '--', file] : ['diff', 'HEAD'])).out)
 ipcMain.handle('git:stage', async (_e, cwd: string, file: string) => (await git(cwd, ['add', '--', file])).ok)
 ipcMain.handle('git:unstage', async (_e, cwd: string, file: string) => (await git(cwd, ['reset', 'HEAD', '--', file])).ok)
 ipcMain.handle('git:commit', async (_e, cwd: string, msg: string) => (await git(cwd, ['commit', '-m', msg])).out)
+// total added/removed lines across all changes (staged + unstaged), for the
+// "Changes +X −Y" pill.
+ipcMain.handle('git:stat', async (_e, cwd: string) => {
+  const r = await git(cwd, ['diff', 'HEAD', '--numstat'])
+  let added = 0, removed = 0
+  for (const line of r.out.split('\n')) {
+    const m = line.match(/^(\d+)\t(\d+)\t/)
+    if (m) { added += +m[1]; removed += +m[2] }
+  }
+  return { added, removed }
+})
+ipcMain.handle('git:commitPush', async (_e, cwd: string, msg: string) => {
+  await git(cwd, ['add', '-A'])
+  const c = await git(cwd, ['commit', '-m', msg])
+  const p = await git(cwd, ['push'])
+  return { commit: c.out, push: p.out, ok: p.ok }
+})
 
 // ---- One-shot command exec (for the AI agent to run + capture output) ------
 ipcMain.handle('sys:exec', async (_e, cwd: string, command: string) => {
@@ -176,6 +194,67 @@ ipcMain.handle('sys:exec', async (_e, cwd: string, command: string) => {
     p.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 0, output: out.slice(0, 40000) }) })
     p.on('error', (err) => { clearTimeout(timer); resolve({ code: 1, output: String(err) }) })
   })
+})
+
+// ---- Computer control (screen + mouse + keyboard + AppleScript) ------------
+// The AI operates the Mac like a person: it SEES via screenshots and ACTS via
+// osascript (System Events) — mouse, keyboard, and full AppleScript automation.
+// Requires macOS Screen Recording + Accessibility permissions (granted once).
+const osa = (script: string): Promise<{ ok: boolean; out: string }> =>
+  new Promise((resolve) => {
+    const p = spawn('osascript', ['-e', script])
+    let out = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.stderr.on('data', (d) => (out += d))
+    p.on('close', (code) => resolve({ ok: code === 0, out: out.trim() }))
+    p.on('error', (err) => resolve({ ok: false, out: String(err) }))
+  })
+
+ipcMain.handle('pc:screenshot', async () => {
+  const tmp = path.join(os.tmpdir(), `nalu-shot-${Date.now()}.png`)
+  await new Promise<void>((res) => { const p = spawn('screencapture', ['-x', '-C', tmp]); p.on('close', () => res()); p.on('error', () => res()) })
+  try {
+    const buf = await fs.readFile(tmp)
+    await fs.rm(tmp, { force: true })
+    return `data:image/png;base64,${buf.toString('base64')}`
+  } catch { return '' }
+})
+ipcMain.handle('pc:screenSize', async () => {
+  const r = await osa('tell application "Finder" to get bounds of window of desktop')
+  const m = r.out.match(/(\d+), (\d+), (\d+), (\d+)/)
+  return m ? { w: +m[3], h: +m[4] } : { w: 1440, h: 900 }
+})
+ipcMain.handle('pc:click', async (_e, x: number, y: number, dbl?: boolean) => {
+  // uses cliclick if present (precise), else AppleScript fallback
+  const cmd = dbl ? `dc:${x},${y}` : `c:${x},${y}`
+  const r = await new Promise<{ ok: boolean; out: string }>((res) => {
+    const p = spawn('cliclick', [cmd]); let o = ''; p.stdout.on('data', d => o += d); p.stderr.on('data', d => o += d)
+    p.on('close', c => res({ ok: c === 0, out: o })); p.on('error', () => res({ ok: false, out: 'no-cliclick' }))
+  })
+  if (r.ok) return true
+  // fallback: AppleScript can't move the cursor natively; report so the model uses keys/menus instead
+  return false
+})
+ipcMain.handle('pc:type', async (_e, text: string) => {
+  const esc = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  return (await osa(`tell application "System Events" to keystroke "${esc}"`)).ok
+})
+ipcMain.handle('pc:key', async (_e, combo: string) => {
+  // e.g. "cmd+t", "return", "tab"
+  const parts = combo.toLowerCase().split('+')
+  const key = parts.pop() || ''
+  const mods = parts.map((m) => ({ cmd: 'command down', ctrl: 'control down', alt: 'option down', opt: 'option down', shift: 'shift down' }[m])).filter(Boolean)
+  const special: Record<string, number> = { return: 36, enter: 36, tab: 48, space: 49, esc: 53, escape: 53, delete: 51, left: 123, right: 124, down: 125, up: 126 }
+  const usingClause = mods.length ? ` using {${mods.join(', ')}}` : ''
+  const script = special[key] != null
+    ? `tell application "System Events" to key code ${special[key]}${usingClause}`
+    : `tell application "System Events" to keystroke "${key}"${usingClause}`
+  return (await osa(script)).ok
+})
+ipcMain.handle('pc:applescript', async (_e, script: string) => await osa(script))
+ipcMain.handle('pc:open', async (_e, target: string) => {
+  // an app name or a URL
+  return await new Promise<boolean>((res) => { const p = spawn('open', /^https?:\/\//.test(target) ? [target] : ['-a', target]); p.on('close', c => res(c === 0)); p.on('error', () => res(false)) })
 })
 
 // ---- Terminal IPC — a REAL pseudo-terminal via node-pty --------------------

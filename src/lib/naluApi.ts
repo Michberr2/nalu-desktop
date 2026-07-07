@@ -11,7 +11,13 @@ export function setToken(t: string): void {
   localStorage.setItem('nalu-token', t)
 }
 
-export type WireMessage = { role: 'user' | 'assistant' | 'system'; content: string }
+type Part = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+export type WireMessage = { role: 'user' | 'assistant' | 'system'; content: string | Part[] }
+
+// Build a user message carrying an image (for the vision model / computer use).
+export function imageMessage(text: string, dataUrl: string): WireMessage {
+  return { role: 'user', content: [{ type: 'text', text }, { type: 'image_url', image_url: { url: dataUrl } }] }
+}
 
 // Stream a chat/agent completion from Nalu. Calls onDelta with answer text as it
 // arrives and onRoute with the specialist that answered.
