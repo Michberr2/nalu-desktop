@@ -54,10 +54,15 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/wolf.icns",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
       "target": [
         "dmg"
       ]
+    },
+    "dmg": {
+      "writeUpdateInfo": false
     },
     "win": {
       "icon": "build/wolf.ico",
