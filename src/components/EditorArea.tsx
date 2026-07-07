@@ -43,8 +43,23 @@ function defineTheme(monaco: Monaco) {
   })
 }
 
+import { useRef } from 'react'
+import type { editor } from 'monaco-editor'
+
 export default function EditorArea() {
   const ws = useWorkspace()
+  const edRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+
+  // jump to a line when search/git asks to reveal one in the active file
+  if (edRef.current && ws.reveal && ws.active && ws.reveal.path === ws.active.path) {
+    const ed = edRef.current
+    const line = ws.reveal.line
+    requestAnimationFrame(() => {
+      ed.revealLineInCenter(line)
+      ed.setPosition({ lineNumber: line, column: 1 })
+      ed.focus()
+    })
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -89,6 +104,7 @@ export default function EditorArea() {
             value={ws.active.content}
             theme="nalu"
             beforeMount={defineTheme}
+            onMount={(ed) => { edRef.current = ed }}
             onChange={(v) => ws.editActive(v ?? '')}
             options={{
               fontFamily: 'JetBrains Mono, ui-monospace, Menlo, monospace',

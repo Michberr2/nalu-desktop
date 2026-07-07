@@ -12,6 +12,18 @@ const api = {
   mkdir: (dir: string, name: string): Promise<string> => ipcRenderer.invoke('fs:mkdir', dir, name),
   del: (target: string): Promise<boolean> => ipcRenderer.invoke('fs:delete', target),
   rename: (from: string, to: string): Promise<boolean> => ipcRenderer.invoke('fs:rename', from, to),
+  search: (root: string, query: string): Promise<Array<{ file: string; rel: string; line: number; text: string }>> =>
+    ipcRenderer.invoke('fs:search', root, query),
+  exec: (cwd: string, command: string): Promise<{ code: number; output: string }> => ipcRenderer.invoke('sys:exec', cwd, command),
+
+  git: {
+    status: (cwd: string): Promise<{ repo: boolean; branch?: string; files?: Array<{ x: string; y: string; path: string }> }> =>
+      ipcRenderer.invoke('git:status', cwd),
+    diff: (cwd: string, file: string): Promise<string> => ipcRenderer.invoke('git:diff', cwd, file),
+    stage: (cwd: string, file: string): Promise<boolean> => ipcRenderer.invoke('git:stage', cwd, file),
+    unstage: (cwd: string, file: string): Promise<boolean> => ipcRenderer.invoke('git:unstage', cwd, file),
+    commit: (cwd: string, msg: string): Promise<string> => ipcRenderer.invoke('git:commit', cwd, msg),
+  },
 
   term: {
     create: (id: string, cwd: string): Promise<boolean> => ipcRenderer.invoke('term:create', id, cwd),

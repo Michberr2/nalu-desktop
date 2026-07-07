@@ -26,6 +26,10 @@ type Ctx = {
   setRouteName: (s: string) => void
   refreshKey: number
   refresh: () => void
+  drawerMode: 'files' | 'search' | 'git'
+  setDrawerMode: (m: 'files' | 'search' | 'git') => void
+  reveal: { path: string; line: number } | null
+  openAt: (path: string, name: string, line: number) => Promise<void>
 }
 
 // Exact same background-photo mapping the website uses (Workspace.bgFor): the
@@ -52,6 +56,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [routeName, setRouteName] = useState('nalu-catalina')
   const [refreshKey, setRefreshKey] = useState(0)
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
+  const [drawerMode, setDrawerMode] = useState<'files' | 'search' | 'git'>('files')
+  const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null)
 
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()
@@ -66,6 +72,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
     setActivePath(path)
   }, [tabs])
+
+  const openAt = useCallback(async (path: string, name: string, line: number) => {
+    await openFile(path, name)
+    setReveal({ path, line })
+  }, [openFile])
 
   const closeTab = useCallback((path: string) => {
     setTabs((prev) => {
@@ -95,6 +106,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     filesOpen, setFilesOpen, termOpen, setTermOpen, paletteOpen, setPaletteOpen,
     settingsOpen, setSettingsOpen, routeName, setRouteName,
     refreshKey, refresh,
+    drawerMode, setDrawerMode, reveal, openAt,
   }
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>
 }

@@ -18,6 +18,8 @@ function Shell() {
       if (mod && e.key === 'k') { e.preventDefault(); ws.setPaletteOpen(true) }
       else if (mod && e.key === 's') { e.preventDefault(); void ws.saveActive() }
       else if (mod && e.key === '`') { e.preventDefault(); ws.setTermOpen(!ws.termOpen) }
+      else if (mod && e.shiftKey && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); ws.setFilesOpen(true); ws.setDrawerMode('search') }
+      else if (mod && e.shiftKey && (e.key === 'g' || e.key === 'G')) { e.preventDefault(); ws.setFilesOpen(true); ws.setDrawerMode('git') }
       else if (mod && e.key === 'b') { e.preventDefault(); ws.setFilesOpen(!ws.filesOpen) }
     }
     window.addEventListener('keydown', onKey)

@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
-import { ArrowUp, Check, Square, ChevronDown, X } from 'lucide-react'
+import { ArrowUp, Check, Square, ChevronDown, X, FileText, FolderTree, Search as SearchIcon, Terminal, Pencil, CheckCircle2 } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import { streamChat, type WireMessage } from '../lib/naluApi'
+import { runAgent, type AgentStep, type AgentTool } from '../lib/agent'
 import wolfUrl from '../lib/wolf'
 
 type Msg = { role: 'user' | 'assistant'; text: string; specialist?: string; proposed?: string }
@@ -22,18 +23,36 @@ export default function NaluBar() {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false) // thread expanded?
+  const [agentLog, setAgentLog] = useState<AgentStep[]>([])
+  const [pending, setPending] = useState<{ action: AgentTool; resolve: (ok: boolean) => void } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollDown = () => requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight })
+
+  const runAgentTask = async (task: string) => {
+    setAgentLog([{ kind: 'thought', text: `Task: ${task}` }])
+    setOpen(true); setBusy(true)
+    const ctrl = new AbortController(); abortRef.current = ctrl
+    try {
+      await runAgent({
+        task, folder: ws.folder, signal: ctrl.signal,
+        onStep: (s) => { setAgentLog((p) => [...p, s]); if (s.kind === 'result' || s.kind === 'action') { ws.refresh() } scrollDown() },
+        approve: (action) => new Promise((resolve) => setPending({ action, resolve })),
+      })
+    } catch (e) {
+      setAgentLog((p) => [...p, { kind: 'error', text: e instanceof Error ? e.message : 'agent error' }])
+    } finally { setBusy(false); abortRef.current = null; setPending(null) }
+  }
 
   const send = async () => {
     const content = input.trim()
     if (!content || busy) return
     setInput('')
     setOpen(true)
+    if (mode === 'agent') { void runAgentTask(content); return }
     const file = ws.active
     let userContent = content
-    if (file && (mode === 'edit' || mode === 'agent')) {
+    if (file && mode === 'edit') {
       userContent = `${content}\n\nThe user is editing ${file.name}. Return the COMPLETE updated file in ONE fenced code block, nothing else.\n\nCurrent ${file.name}:\n\`\`\`\n${file.content}\n\`\`\``
     } else if (file) {
       userContent = `${content}\n\n(Context — the open file ${file.name}:)\n\`\`\`\n${file.content.slice(0, 8000)}\n\`\`\``
@@ -62,7 +81,7 @@ export default function NaluBar() {
           scrollDown()
         },
       })
-      if (file && (mode === 'edit' || mode === 'agent')) {
+      if (file && mode === 'edit') {
         const code = extractCode(acc)
         if (code && code !== file.content) setMsgs((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], proposed: code }; return c })
       }
@@ -78,8 +97,44 @@ export default function NaluBar() {
     setMsgs((p) => p.map((m, idx) => (idx === i ? { ...m, proposed: undefined, text: m.text + '\n\n_Applied ✓_' } : m)))
   }
 
+  const toolIcon = (t: string) => t === 'read_file' ? FileText : t === 'list_dir' ? FolderTree : t === 'search' ? SearchIcon : t === 'run' ? Terminal : Pencil
+  const toolLabel = (a: AgentTool) => a.tool === 'read_file' ? `Read ${a.path}` : a.tool === 'list_dir' ? `List ${a.path}` : a.tool === 'search' ? `Search "${a.query}"` : a.tool === 'run' ? `Run: ${a.command}` : a.tool === 'write_file' ? `Edit ${a.path}` : 'Done'
+
   return (
     <div className="shrink-0">
+      {/* AGENT transcript — the autonomous read/edit/run loop */}
+      {open && agentLog.length > 0 && (
+        <div className="mb-2 overflow-hidden rounded-2xl border border-gold/25 bg-panel/80 backdrop-blur-2xl">
+          <div className="flex items-center justify-between border-b border-glass/[0.08] px-3 py-1.5">
+            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-gold">Agent</span>
+            <div className="flex items-center gap-1">
+              {busy && <button onClick={() => abortRef.current?.abort()} className="rounded p-1 text-dim hover:text-ink"><Square size={12} /></button>}
+              <button onClick={() => { setAgentLog([]); setOpen(false) }} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={13} /></button>
+            </div>
+          </div>
+          <div ref={scrollRef} className="max-h-[42vh] space-y-1.5 overflow-y-auto p-3 text-[12px]">
+            {agentLog.map((s, i) => {
+              if (s.kind === 'thought') return <div key={i} className="text-dim">{s.text}</div>
+              if (s.kind === 'action') { const Icon = toolIcon(s.action.tool); return <div key={i} className="flex items-center gap-1.5 font-medium text-ink"><Icon size={13} className="shrink-0 text-gold" /><span className="truncate">{toolLabel(s.action)}</span></div> }
+              if (s.kind === 'result') return <pre key={i} className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-panel2 px-2 py-1.5 text-[11px] text-dim">{s.text.slice(0, 1200)}</pre>
+              if (s.kind === 'done') return <div key={i} className="flex items-start gap-1.5 font-medium text-gold"><CheckCircle2 size={14} className="mt-0.5 shrink-0" />{s.text}</div>
+              return <div key={i} className="text-red-300">{s.text}</div>
+            })}
+            {pending && (
+              <div className="mt-1 rounded-xl border border-gold/40 bg-panel2 p-2">
+                <div className="mb-1.5 text-[11px] text-ink">Approve this action?</div>
+                <div className="mb-2 truncate text-[12px] font-medium text-gold">{toolLabel(pending.action)}</div>
+                {pending.action.tool === 'run' && <pre className="mb-2 whitespace-pre-wrap rounded bg-panel px-2 py-1 text-[11px] text-dim">{pending.action.command}</pre>}
+                <div className="flex gap-1.5">
+                  <button onClick={() => { pending.resolve(true); setPending(null) }} className="flex items-center gap-1 rounded-md bg-gold/90 px-2.5 py-1 text-[11px] font-medium text-[#15170f] hover:bg-gold"><Check size={12} /> Approve</button>
+                  <button onClick={() => { pending.resolve(false); setPending(null) }} className="rounded-md border border-glass/[0.1] px-2.5 py-1 text-[11px] text-dim hover:text-ink">Deny</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* conversation thread — expands above the prompt when there's a chat */}
       {open && msgs.length > 0 && (
         <div className="mb-2 overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/80 backdrop-blur-2xl">

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { promises as fs } from 'node:fs'
+import { spawn } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -102,6 +103,79 @@ ipcMain.handle('fs:mkdir', async (_e, dir: string, name: string) => {
 ipcMain.handle('fs:delete', async (_e, target: string) => {
   await fs.rm(target, { recursive: true, force: true })
   return true
+})
+
+// ---- Cross-file search (like VS Code "Find in Files") ----------------------
+const TEXT_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|json|css|scss|html|md|py|rs|go|java|c|cpp|h|sh|yml|yaml|sql|toml|txt|vue|svelte|rb|php|xml|env|gitignore)$/i
+async function searchDir(root: string, dir: string, q: string, out: Array<{ file: string; rel: string; line: number; text: string }>, cap: number) {
+  if (out.length >= cap) return
+  let entries: import('node:fs').Dirent[]
+  try { entries = await fs.readdir(dir, { withFileTypes: true }) } catch { return }
+  for (const e of entries) {
+    if (out.length >= cap) return
+    if (IGNORE.has(e.name)) continue
+    const full = path.join(dir, e.name)
+    if (e.isDirectory()) { await searchDir(root, full, q, out, cap) }
+    else if (TEXT_EXT.test(e.name)) {
+      try {
+        const content = await fs.readFile(full, 'utf8')
+        if (content.length > 2_000_000) continue
+        const lines = content.split('\n')
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].toLowerCase().includes(q)) {
+            out.push({ file: full, rel: path.relative(root, full), line: i + 1, text: lines[i].trim().slice(0, 200) })
+            if (out.length >= cap) return
+          }
+        }
+      } catch { /* skip unreadable */ }
+    }
+  }
+}
+ipcMain.handle('fs:search', async (_e, root: string, query: string) => {
+  const q = (query || '').toLowerCase().trim()
+  if (!q || !root) return []
+  const out: Array<{ file: string; rel: string; line: number; text: string }> = []
+  await searchDir(root, root, q, out, 300)
+  return out
+})
+
+// ---- Git integration (spawn the system git) --------------------------------
+function git(cwd: string, args: string[]): Promise<{ ok: boolean; out: string }> {
+  return new Promise((resolve) => {
+    const p = spawn('git', args, { cwd })
+    let out = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.stderr.on('data', (d) => (out += d))
+    p.on('close', (code) => resolve({ ok: code === 0, out }))
+    p.on('error', () => resolve({ ok: false, out: 'git not found' }))
+  })
+}
+ipcMain.handle('git:status', async (_e, cwd: string) => {
+  const branch = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (!branch.ok) return { repo: false }
+  const status = await git(cwd, ['status', '--porcelain=v1'])
+  const files = status.out.split('\n').filter(Boolean).map((l) => ({ x: l[0], y: l[1], path: l.slice(3) }))
+  return { repo: true, branch: branch.out.trim(), files }
+})
+ipcMain.handle('git:diff', async (_e, cwd: string, file: string) => (await git(cwd, ['diff', '--', file])).out)
+ipcMain.handle('git:stage', async (_e, cwd: string, file: string) => (await git(cwd, ['add', '--', file])).ok)
+ipcMain.handle('git:unstage', async (_e, cwd: string, file: string) => (await git(cwd, ['reset', 'HEAD', '--', file])).ok)
+ipcMain.handle('git:commit', async (_e, cwd: string, msg: string) => (await git(cwd, ['commit', '-m', msg])).out)
+
+// ---- One-shot command exec (for the AI agent to run + capture output) ------
+ipcMain.handle('sys:exec', async (_e, cwd: string, command: string) => {
+  return await new Promise<{ code: number; output: string }>((resolve) => {
+    const sh = process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh'
+    const args = process.platform === 'win32' ? ['-Command', command] : ['-lc', command]
+    const p = spawn(sh, args, { cwd: cwd || os.homedir(), env: process.env })
+    let out = ''
+    const cap = (d: Buffer) => { if (out.length < 40000) out += d.toString() }
+    p.stdout.on('data', cap)
+    p.stderr.on('data', cap)
+    const timer = setTimeout(() => { p.kill(); resolve({ code: 124, output: out + '\n[timed out after 60s]' }) }, 60000)
+    p.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 0, output: out.slice(0, 40000) }) })
+    p.on('error', (err) => { clearTimeout(timer); resolve({ code: 1, output: String(err) }) })
+  })
 })
 
 // ---- Terminal IPC — a REAL pseudo-terminal via node-pty --------------------
