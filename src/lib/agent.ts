@@ -9,6 +9,9 @@ import { streamChat, imageMessage, type WireMessage } from './naluApi'
 export type PcTool =
   | { tool: 'see' }
   | { tool: 'open'; target: string }
+  | { tool: 'browse'; url: string }
+  | { tool: 'read_page' }
+  | { tool: 'page_js'; code: string }
   | { tool: 'shell'; command: string }
   | { tool: 'applescript'; script: string }
   | { tool: 'type'; text: string }
@@ -27,25 +30,25 @@ export type PcStep =
 const PC_SYSTEM = `You are Nalu Catalina — a world-class expert at operating a Mac. You complete the user's task by acting on the computer, ONE step at a time. You are DEADLY ACCURATE and prefer the fastest reliable method.
 
 You MUST reply with EXACTLY one JSON action inside a \`\`\`json fence (one short sentence of reasoning before the fence is allowed, nothing after). The tools:
-{"tool":"open","target":"Mail"}                 // open an app by name, or a URL like https://mail.google.com
-{"tool":"applescript","script":"..."}           // BEST for controlling apps: Mail, Safari/Chrome, Calendar, Messages, Finder, System Events
-{"tool":"shell","command":"..."}                // run a terminal command (deterministic, fast)
+{"tool":"browse","url":"https://..."}           // open a URL in the real browser (waits for load)
+{"tool":"read_page"}                             // READ the current web page: its title, url, visible text, and clickable elements. Use this to SEE web pages (better than a screenshot).
+{"tool":"page_js","code":"..."}                  // run JavaScript IN the page to click/fill/submit, e.g. document.querySelector('input[name=q]').value='hi'; document.querySelector('button[type=submit]').click()
+{"tool":"open","target":"Mail"}                 // open an app by name (or a URL)
+{"tool":"applescript","script":"..."}           // control native apps: Mail, Calendar, Messages, Finder, System Events
+{"tool":"shell","command":"..."}                // run a terminal command
 {"tool":"type","text":"..."}                    // type into the focused field
-{"tool":"key","combo":"cmd+t"}                   // a shortcut: return, tab, esc, cmd+l, cmd+t…
-{"tool":"see"}                                   // take a screenshot AND get a description of what's on screen (use ONLY when you must find a GUI element to click)
-{"tool":"click","x":100,"y":200}                // click screen coordinates (get them from a "see" description)
-{"tool":"done","summary":"..."}                 // task complete
+{"tool":"key","combo":"cmd+t"}                   // a shortcut: return, tab, esc, cmd+l…
+{"tool":"see"}                                   // screenshot + description (ONLY for non-browser GUIs you must click)
+{"tool":"click","x":100,"y":200}                // click screen coordinates from a "see" description
+{"tool":"done","summary":"..."}                 // task complete (or report the outcome/blocker)
 
-STRATEGY (be fast + reliable):
-1. PREFER "open", "applescript", "shell" — they are deterministic and need NO screenshot. Most tasks are done this way.
-2. Use "see" only when you genuinely must locate a visual element to click. It is the slow path; avoid it when open/applescript/shell can do the job.
-3. Examples:
-   - "open my email" -> {"tool":"open","target":"https://mail.google.com"}  (or {"tool":"open","target":"Mail"} for the Mail app)
-   - "open reddit" -> {"tool":"open","target":"https://reddit.com"}
-   - "what's on my calendar today" -> {"tool":"applescript","script":"tell application \\"Calendar\\" to ..."}
-   - "compose an email to X" -> {"tool":"applescript","script":"tell application \\"Mail\\" to make new outgoing message ..."}
-   - a shell/system question -> {"tool":"shell","command":"..."}
-Work autonomously to the goal. NEVER reply with plain prose only — ALWAYS emit a JSON action. When the task is done, use "done".`
+STRATEGY — be fast, thorough, and DEADLY ACCURATE. Do NOT give up after one search.
+1. WEB TASKS (reservations, email, forms, booking, posting) — DRIVE THE BROWSER with browse + read_page + page_js. This reads/acts on the real DOM and is far more reliable than screenshots. NEVER just "web search and report" — actually go to the site and do it.
+   - RESERVATIONS: try the real booking platforms — browse "https://www.opentable.com", read_page, use page_js to search the restaurant + city, read the results, and book. Also try "https://resy.com". If a specific restaurant genuinely has no online booking (some don't), go to their official site's reservations/waitlist page and use it; only then report the exact next step (e.g. the number to call) — but exhaust the online options first.
+   - EMAIL: browse "https://mail.google.com", read_page, and use page_js/keys to read, compose, archive, or reorganize. For the Mail.app, use applescript.
+2. NATIVE apps → applescript. System/CLI things → shell. These are instant and need no screenshot.
+3. Use "see"/"click" only for non-web GUI elements you can't reach otherwise.
+Work autonomously and persistently toward the goal. NEVER reply with prose only — ALWAYS emit a JSON action. When truly done (success OR a real blocker with the concrete next step), use "done".`
 
 // Robust parse: fenced json, bare json, or the first {...}; tolerant of extra prose.
 function parsePc(text: string): { thought: string; action: PcTool | null } {
@@ -76,6 +79,18 @@ export async function runComputer(opts: {
     { role: 'system', content: PC_SYSTEM },
     { role: 'user', content: `TASK: ${task}\n\nDecide the first action. Prefer open/applescript/shell — don't take a screenshot unless you must click a visual element.` },
   ]
+
+  // Read the current web page as text + a compact list of clickable elements —
+  // the agent's reliable way to "see" and act on the web.
+  const readPage = async (): Promise<string> => {
+    const code = `(function(){try{var els=[].slice.call(document.querySelectorAll('a,button,input,textarea,select,[role=button]'));var items=[];for(var i=0;i<els.length&&items.length<50;i++){var e=els[i];var t=(e.innerText||e.value||e.placeholder||e.getAttribute('aria-label')||'').trim().replace(/\\s+/g,' ').slice(0,60);if(t)items.push('<'+e.tagName.toLowerCase()+(e.name?' name='+e.name:'')+(e.type?' type='+e.type:'')+'> '+t);}return JSON.stringify({title:document.title,url:location.href,text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,2500),elements:items});}catch(err){return 'ERR '+err;}})()`
+    const r = await window.nalu.pc.browserRun(code, true)
+    if (!r.ok || !r.out) return `could not read the page (${r.out?.slice(0, 200) || 'no browser'}). If Safari, enable Develop → Allow JavaScript from Apple Events, or use Chrome.`
+    try {
+      const p = JSON.parse(r.out) as { title: string; url: string; text: string; elements: string[] }
+      return `PAGE: ${p.title}\nURL: ${p.url}\nTEXT: ${p.text}\nCLICKABLE ELEMENTS:\n${(p.elements || []).join('\n')}`
+    } catch { return r.out.slice(0, 3000) }
+  }
 
   const describeScreen = async (): Promise<string> => {
     const url = await window.nalu.pc.screenshot()
@@ -136,6 +151,9 @@ export async function runComputer(opts: {
     let result = ''
     try {
       if (action.tool === 'see') { result = await describeScreen() }
+      else if (action.tool === 'browse') { const ok = await window.nalu.pc.browserOpen(action.url); result = ok ? `opened ${action.url}. Use read_page to see it.` : `could not open ${action.url}` }
+      else if (action.tool === 'read_page') { result = await readPage() }
+      else if (action.tool === 'page_js') { const r = await window.nalu.pc.browserRun(action.code, true); result = r.ok ? `ran. result: ${r.out.slice(0, 3000)}` : `page_js error: ${r.out.slice(0, 500)} (if "not allowed", tell the user to enable Safari Develop → Allow JavaScript from Apple Events, or use Chrome)` }
       else if (action.tool === 'open') { result = (await window.nalu.pc.open(action.target)) ? `opened ${action.target}` : `could not open ${action.target}` }
       else if (action.tool === 'shell') { const r = await window.nalu.exec('', action.command); result = `exit ${r.code}\n${r.output.slice(0, 6000)}` }
       else if (action.tool === 'applescript') { const r = await window.nalu.pc.applescript(action.script); result = (r.ok ? 'ok ' : 'error ') + r.out.slice(0, 4000) }

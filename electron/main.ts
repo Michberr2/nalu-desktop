@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences } from 'electron'
 import { promises as fs } from 'node:fs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
@@ -196,6 +196,22 @@ ipcMain.handle('sys:exec', async (_e, cwd: string, command: string) => {
   })
 })
 
+// ---- Permissions — Accessibility (keystrokes/clicks/menu automation) and
+// Screen Recording (screenshots). Both are one-time macOS grants. ------------
+ipcMain.handle('pc:permissions', (_e, prompt: boolean) => {
+  if (process.platform !== 'darwin') return { accessibility: true, screen: true }
+  const accessibility = systemPreferences.isTrustedAccessibilityClient(!!prompt) // `true` opens the System Settings pane
+  const screen = systemPreferences.getMediaAccessStatus('screen') === 'granted'
+  return { accessibility, screen }
+})
+ipcMain.handle('pc:openSettings', (_e, pane: string) => {
+  const url = pane === 'screen'
+    ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+    : 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
+  shell.openExternal(url)
+  return true
+})
+
 // ---- Computer control (screen + mouse + keyboard + AppleScript) ------------
 // The AI operates the Mac like a person: it SEES via screenshots and ACTS via
 // osascript (System Events) — mouse, keyboard, and full AppleScript automation.
@@ -260,6 +276,71 @@ ipcMain.handle('pc:applescript', async (_e, script: string) => await osa(script)
 ipcMain.handle('pc:open', async (_e, target: string) => {
   // an app name or a URL
   return await new Promise<boolean>((res) => { const p = spawn('open', /^https?:\/\//.test(target) ? [target] : ['-a', target]); p.on('close', c => res(c === 0)); p.on('error', () => res(false)) })
+})
+
+// ---- Browser automation (drive Chrome/Safari via JS in the real page) -------
+// Reading and acting on the actual DOM is FAR more reliable than pixel-clicking
+// for web tasks (reservations, email, forms). Requires the browser to allow JS
+// from Apple Events (Chrome: on by default via AppleScript; Safari: Develop →
+// "Allow JavaScript from Apple Events").
+async function whichBrowser(): Promise<'Google Chrome' | 'Safari' | ''> {
+  const r = await osa('tell application "System Events" to get name of (processes where background only is false)')
+  if (/Google Chrome/.test(r.out)) return 'Google Chrome'
+  if (/Safari/.test(r.out)) return 'Safari'
+  return ''
+}
+function jsForApplescript(code: string): string {
+  // embed JS as an AppleScript string literal
+  return code.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ')
+}
+// Chrome/Safari block "execute JavaScript via AppleScript" by default. Turn it
+// on by toggling the menu item (View→Developer→Allow JS from Apple Events for
+// Chrome; Develop→Allow JavaScript from Apple Events for Safari). We toggle,
+// test, and if we turned it OFF we toggle back — leaving it ON.
+async function ensureBrowserJs(browser: 'Google Chrome' | 'Safari'): Promise<boolean> {
+  const test = browser === 'Google Chrome'
+    ? `tell application "Google Chrome" to execute front window's active tab javascript "1+1"`
+    : `tell application "Safari" to do JavaScript "1+1" in current tab of front window`
+  if ((await osa(test)).ok) return true
+  const clickItem = browser === 'Google Chrome'
+    ? `tell application "Google Chrome" to activate
+delay 0.2
+tell application "System Events" to tell process "Google Chrome" to click menu item "Allow JavaScript from Apple Events" of menu 1 of menu item "Developer" of menu 1 of menu bar item "View" of menu bar 1`
+    : `tell application "Safari" to activate
+delay 0.2
+tell application "System Events" to tell process "Safari" to click menu item "Allow JavaScript from Apple Events" of menu 1 of menu bar item "Develop" of menu bar 1`
+  for (let i = 0; i < 2; i++) {
+    await osa(clickItem)
+    await new Promise((r) => setTimeout(r, 300))
+    if ((await osa(test)).ok) return true
+  }
+  return false
+}
+
+ipcMain.handle('pc:browserRun', async (_e, code: string, wantResult: boolean) => {
+  let browser = await whichBrowser()
+  if (!browser) { await new Promise<void>((r) => { const p = spawn('open', ['-a', 'Google Chrome']); p.on('close', () => r()); p.on('error', () => r()) }); await new Promise((r) => setTimeout(r, 1500)); browser = 'Google Chrome' }
+  const js = jsForApplescript(code)
+  const script = browser === 'Google Chrome'
+    ? `tell application "Google Chrome" to execute front window's active tab javascript "${js}"`
+    : `tell application "Safari" to do JavaScript "${js}" in current tab of front window`
+  let r = await osa(script)
+  if (!r.ok && /turned off|not allowed|Apple Events/i.test(r.out)) {
+    if (await ensureBrowserJs(browser)) r = await osa(script)
+    else return { ok: false, out: `Browser JS is disabled. Enable it once: ${browser === 'Google Chrome' ? 'Chrome menu → View → Developer → "Allow JavaScript from Apple Events"' : 'Safari → Develop → "Allow JavaScript from Apple Events"'} (and grant this app Accessibility in System Settings → Privacy).` }
+  }
+  return { ok: r.ok, out: wantResult ? r.out.slice(0, 8000) : (r.ok ? 'done' : r.out) }
+})
+// open a URL in a browser tab and wait for it to load
+ipcMain.handle('pc:browserOpen', async (_e, url: string) => {
+  let browser = await whichBrowser()
+  if (!browser) browser = 'Google Chrome'
+  const script = browser === 'Google Chrome'
+    ? `tell application "Google Chrome"\n activate\n if (count of windows) = 0 then make new window\n set URL of active tab of front window to "${url}"\nend tell`
+    : `tell application "Safari"\n activate\n if (count of windows) = 0 then make new document\n set URL of current tab of front window to "${url}"\nend tell`
+  const r = await osa(script)
+  await new Promise((res) => setTimeout(res, 2200)) // let it load
+  return r.ok
 })
 
 // ---- Terminal IPC — a REAL pseudo-terminal via node-pty --------------------

@@ -29,6 +29,8 @@ const api = {
 
   // Computer control — the AI operates the whole Mac.
   pc: {
+    permissions: (prompt: boolean): Promise<{ accessibility: boolean; screen: boolean }> => ipcRenderer.invoke('pc:permissions', prompt),
+    openSettings: (pane: string): Promise<boolean> => ipcRenderer.invoke('pc:openSettings', pane),
     screenshot: (): Promise<string> => ipcRenderer.invoke('pc:screenshot'),
     screenSize: (): Promise<{ w: number; h: number }> => ipcRenderer.invoke('pc:screenSize'),
     click: (x: number, y: number, dbl?: boolean): Promise<boolean> => ipcRenderer.invoke('pc:click', x, y, dbl),
@@ -36,6 +38,8 @@ const api = {
     key: (combo: string): Promise<boolean> => ipcRenderer.invoke('pc:key', combo),
     applescript: (script: string): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:applescript', script),
     open: (target: string): Promise<boolean> => ipcRenderer.invoke('pc:open', target),
+    browserRun: (code: string, wantResult: boolean): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:browserRun', code, wantResult),
+    browserOpen: (url: string): Promise<boolean> => ipcRenderer.invoke('pc:browserOpen', url),
   },
 
   term: {

@@ -52,6 +52,11 @@ export default function NaluBar() {
 
   const runComputerTask = async (task: string) => {
     setPcLog([{ kind: 'thought', text: `Task: ${task}` }]); setOpen(true); setBusy(true)
+    // one-time macOS permissions for clicks/keystrokes/browser control
+    try {
+      const perms = await window.nalu.pc.permissions(true)
+      if (!perms.accessibility) setPcLog((p) => [...p, { kind: 'thought', text: 'One-time setup: grant Nalu Accessibility in the window that just opened (System Settings → Privacy & Security → Accessibility), so it can click, type, and drive the browser. I can still open apps, run AppleScript, and use the terminal without it.' }])
+    } catch { /* not mac / ignore */ }
     const ctrl = new AbortController(); abortRef.current = ctrl
     try {
       await runComputer({
@@ -129,7 +134,7 @@ export default function NaluBar() {
   const toolIcon = (t: string) => t === 'read_file' ? FileText : t === 'list_dir' ? FolderTree : t === 'search' ? SearchIcon : t === 'run' ? Terminal : Pencil
   const toolLabel = (a: AgentTool) => a.tool === 'read_file' ? `Read ${a.path}` : a.tool === 'list_dir' ? `List ${a.path}` : a.tool === 'search' ? `Search "${a.query}"` : a.tool === 'run' ? `Run: ${a.command}` : a.tool === 'write_file' ? `Edit ${a.path}` : 'Done'
 
-  const pcLabel = (a: PcTool) => a.tool === 'open' ? `Open ${a.target}` : a.tool === 'shell' ? `Run: ${a.command}` : a.tool === 'applescript' ? 'AppleScript' : a.tool === 'type' ? `Type "${a.text.slice(0, 30)}"` : a.tool === 'key' ? `Press ${a.combo}` : a.tool === 'click' ? `Click ${a.x},${a.y}` : a.tool === 'see' ? 'Look at screen' : 'Done'
+  const pcLabel = (a: PcTool) => a.tool === 'browse' ? `Browse ${a.url}` : a.tool === 'read_page' ? 'Read page' : a.tool === 'page_js' ? 'Act on page' : a.tool === 'open' ? `Open ${a.target}` : a.tool === 'shell' ? `Run: ${a.command}` : a.tool === 'applescript' ? 'AppleScript' : a.tool === 'type' ? `Type "${a.text.slice(0, 30)}"` : a.tool === 'key' ? `Press ${a.combo}` : a.tool === 'click' ? `Click ${a.x},${a.y}` : a.tool === 'see' ? 'Look at screen' : 'Done'
 
   return (
     <div className="shrink-0">
