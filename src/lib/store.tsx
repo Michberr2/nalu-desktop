@@ -24,6 +24,8 @@ type Ctx = {
   setSettingsOpen: (b: boolean) => void
   routeName: string
   setRouteName: (s: string) => void
+  refreshKey: number
+  refresh: () => void
 }
 
 // Exact same background-photo mapping the website uses (Workspace.bgFor): the
@@ -48,6 +50,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [routeName, setRouteName] = useState('nalu-catalina')
+  const [refreshKey, setRefreshKey] = useState(0)
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
 
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()
@@ -90,6 +94,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     openFile, setActive: setActivePath, closeTab, editActive, saveActive,
     filesOpen, setFilesOpen, termOpen, setTermOpen, paletteOpen, setPaletteOpen,
     settingsOpen, setSettingsOpen, routeName, setRouteName,
+    refreshKey, refresh,
   }
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>
 }

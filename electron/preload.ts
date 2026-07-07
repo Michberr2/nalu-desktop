@@ -9,6 +9,8 @@ const api = {
   readFile: (file: string): Promise<string> => ipcRenderer.invoke('fs:readFile', file),
   writeFile: (file: string, content: string): Promise<boolean> => ipcRenderer.invoke('fs:writeFile', file, content),
   createFile: (dir: string, name: string): Promise<string> => ipcRenderer.invoke('fs:createFile', dir, name),
+  mkdir: (dir: string, name: string): Promise<string> => ipcRenderer.invoke('fs:mkdir', dir, name),
+  del: (target: string): Promise<boolean> => ipcRenderer.invoke('fs:delete', target),
   rename: (from: string, to: string): Promise<boolean> => ipcRenderer.invoke('fs:rename', from, to),
 
   term: {

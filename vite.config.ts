@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 
-// Electron main + preload are built by vite-plugin-electron; the renderer is a
-// normal Vite React app. In dev, the plugin launches Electron pointed at the
-// Vite dev server.
+// With no "type":"module" in package.json, vite-plugin-electron emits CommonJS
+// for the Electron main + preload (its default) — which is what Electron needs
+// so the preload's contextBridge (window.nalu) actually loads.
 export default defineConfig({
   plugins: [
     react(),
@@ -16,10 +16,8 @@ export default defineConfig({
       },
       {
         entry: 'electron/preload.ts',
-        onstart(args) {
-          args.reload()
-        },
-        vite: { build: { outDir: 'dist-electron', rollupOptions: { external: ['electron', 'node-pty'] } } },
+        onstart: (args) => args.reload(),
+        vite: { build: { outDir: 'dist-electron', rollupOptions: { external: ['electron'] } } },
       },
     ]),
     renderer(),

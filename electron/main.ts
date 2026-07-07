@@ -2,11 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { fileURLToPath } from 'node:url'
 
-// This bundle is ESM (package.json "type": "module"), so __dirname doesn't
-// exist — derive it from import.meta.url.
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// Built as CommonJS (.cjs), so __dirname is provided natively.
 
 // ---------------------------------------------------------------------------
 // Nalu Desktop — Electron main. Security-hardened: contextIsolation on,
@@ -93,6 +90,17 @@ ipcMain.handle('fs:createFile', async (_e, dir: string, name: string) => {
 
 ipcMain.handle('fs:rename', async (_e, from: string, to: string) => {
   await fs.rename(from, to)
+  return true
+})
+
+ipcMain.handle('fs:mkdir', async (_e, dir: string, name: string) => {
+  const p = path.join(dir, name)
+  await fs.mkdir(p, { recursive: false })
+  return p
+})
+
+ipcMain.handle('fs:delete', async (_e, target: string) => {
+  await fs.rm(target, { recursive: true, force: true })
   return true
 })
 
