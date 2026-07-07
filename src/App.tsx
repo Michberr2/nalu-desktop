@@ -5,12 +5,18 @@ import FilesDrawer from './components/FilesDrawer'
 import EditorArea from './components/EditorArea'
 import TerminalPanel from './components/TerminalPanel'
 import NaluBar from './components/NaluBar'
+import NaluChat from './components/NaluChat'
 import CommandPalette from './components/CommandPalette'
 import StatusBar from './components/StatusBar'
 import SettingsModal from './components/SettingsModal'
+import { fetchMe } from './lib/naluApi'
 
 function Shell() {
   const ws = useWorkspace()
+
+  // On launch (and whenever a token appears), confirm the session maps to the
+  // same DB user — powers the avatar + loads the user's chats.
+  useEffect(() => { fetchMe().then((u) => ws.setUser(u)) }, [ws.settingsOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -49,19 +55,24 @@ function Shell() {
 
       <TitleBar />
 
-      {/* ONE interface: the only drawer is Files (left); the center is the
-          editor with the terminal below it and the Nalu prompt bar always at
-          the bottom. Nothing else. */}
-      <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
-        {ws.filesOpen && <FilesDrawer />}
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/75 backdrop-blur-2xl">
-            <EditorArea />
-          </div>
-          {ws.termOpen && <TerminalPanel />}
-          <NaluBar />
+      {/* Two interchangeable faces: NALU (website-like chat + your Studio
+          conversations) and IDE (files + editor + terminal + Nalu prompt bar). */}
+      {ws.appMode === 'nalu' ? (
+        <div className="flex min-h-0 flex-1 px-2 pb-2">
+          <NaluChat />
         </div>
-      </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
+          {ws.filesOpen && <FilesDrawer />}
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/75 backdrop-blur-2xl">
+              <EditorArea />
+            </div>
+            {ws.termOpen && <TerminalPanel />}
+            <NaluBar />
+          </div>
+        </div>
+      )}
 
       <StatusBar />
       {ws.paletteOpen && <CommandPalette />}

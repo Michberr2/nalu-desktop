@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { currentUser, type NaluUser } from './naluApi'
 
 export type Tab = { path: string; name: string; content: string; dirty: boolean }
 
@@ -32,6 +33,11 @@ type Ctx = {
   setFilesWidth: (w: number) => void
   reveal: { path: string; line: number } | null
   openAt: (path: string, name: string, line: number) => Promise<void>
+  // Nalu (website-like chat) vs IDE — interchangeable.
+  appMode: 'nalu' | 'ide'
+  setAppMode: (m: 'nalu' | 'ide') => void
+  user: NaluUser | null
+  setUser: (u: NaluUser | null) => void
 }
 
 // Exact same background-photo mapping the website uses (Workspace.bgFor): the
@@ -61,6 +67,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [drawerMode, setDrawerMode] = useState<'files' | 'search' | 'git'>('files')
   const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null)
   const [filesWidth, setFilesWidth] = useState(() => Number(localStorage.getItem('nalu-files-w')) || 240)
+  // Default to the website-like Nalu chat if signed in, else the IDE.
+  const [user, setUser] = useState<NaluUser | null>(() => currentUser())
+  const [appMode, setAppModeState] = useState<'nalu' | 'ide'>(() => (localStorage.getItem('nalu-app-mode') as 'nalu' | 'ide') || (currentUser() ? 'nalu' : 'ide'))
+  const setAppMode = useCallback((m: 'nalu' | 'ide') => { setAppModeState(m); localStorage.setItem('nalu-app-mode', m) }, [])
 
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()
@@ -111,6 +121,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     refreshKey, refresh,
     drawerMode, setDrawerMode, reveal, openAt,
     filesWidth, setFilesWidth: (w: number) => { const c = Math.max(180, Math.min(560, w)); setFilesWidth(c); localStorage.setItem('nalu-files-w', String(c)) },
+    appMode, setAppMode, user, setUser,
   }
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>
 }

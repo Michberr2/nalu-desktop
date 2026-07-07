@@ -6,7 +6,7 @@ import { runAgent, runComputer, type AgentStep, type AgentTool, type PcStep, typ
 import wolfUrl from '../lib/wolf'
 
 type Msg = { role: 'user' | 'assistant'; text: string; specialist?: string; proposed?: string }
-type TermLine = { cmd: string; out: string }
+type TermLine = { req: string; cmd: string; out: string; running?: boolean }
 type Mode = 'chat' | 'agent' | 'computer' | 'edit' | 'terminal'
 
 function extractCode(text: string): string | null {
@@ -68,12 +68,33 @@ export default function NaluBar() {
     finally { setBusy(false); abortRef.current = null; setPcPending(null) }
   }
 
-  const runTermCmd = async (cmd: string) => {
+  // AI-driven terminal: describe what you want, Nalu picks + runs the command.
+  const runTermCmd = async (request: string) => {
     setOpen(true); setBusy(true)
-    setTermLog((p) => [...p, { cmd, out: '' }])
-    try { const r = await window.nalu.exec(ws.folder || '', cmd); setTermLog((p) => { const c = [...p]; c[c.length - 1] = { cmd, out: r.output || `(exit ${r.code})` }; return c }) }
-    catch (e) { setTermLog((p) => { const c = [...p]; c[c.length - 1] = { cmd, out: String(e) }; return c }) }
-    finally { setBusy(false); scrollDown() }
+    setTermLog((p) => [...p, { req: request, cmd: '', out: '', running: true }])
+    scrollDown()
+    try {
+      // If it already looks like a raw command, run it verbatim; otherwise ask
+      // Nalu to translate the request into the exact shell command.
+      const looksRaw = /^(cd |ls|pwd|git |npm |node |cat |grep |echo |mkdir|rm |cp |mv |brew |python|pip|curl |find |which |touch |code |open |sudo )/.test(request.trim())
+      let cmd = request.trim()
+      if (!looksRaw) {
+        let out = ''
+        await streamChat(
+          [
+            { role: 'system', content: 'You are a macOS shell (zsh) expert. The user tells you what they want to do in the terminal. Reply with ONLY the single exact shell command that does it — no explanation, no markdown, no code fences, no leading $. Chain steps with && if needed. Prefer safe, non-destructive commands.' },
+            { role: 'user', content: request },
+          ],
+          { specialist: 'code', onDelta: (t) => (out += t) },
+        )
+        cmd = out.replace(/```[a-z]*|```/gi, '').replace(/^\$\s*/, '').trim().split('\n')[0].trim()
+      }
+      setTermLog((p) => { const c = [...p]; c[c.length - 1] = { req: request, cmd, out: '', running: true }; return c }); scrollDown()
+      const r = await window.nalu.exec(ws.folder || '', cmd)
+      setTermLog((p) => { const c = [...p]; c[c.length - 1] = { req: request, cmd, out: r.output || `(exit ${r.code})`, running: false }; return c })
+    } catch (e) {
+      setTermLog((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], out: String(e), running: false }; return c })
+    } finally { setBusy(false); scrollDown() }
   }
 
   const send = async () => {
@@ -193,10 +214,11 @@ export default function NaluBar() {
             <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-gold"><Terminal size={12} /> Nalu Terminal</span>
             <button onClick={() => setTermLog([])} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={13} /></button>
           </div>
-          <div ref={scrollRef} className="max-h-[40vh] space-y-2 overflow-y-auto p-3 text-[12px]">
+          <div ref={scrollRef} className="max-h-[40vh] space-y-2.5 overflow-y-auto p-3 text-[12px]">
             {termLog.map((l, i) => (
               <div key={i}>
-                <div className="text-gold">nalu ❯ <span className="text-ink">{l.cmd}</span></div>
+                <div className="text-dim">you ❯ <span className="text-ink">{l.req}</span></div>
+                {l.cmd ? <div className="mt-0.5 text-gold">nalu ❯ <span className="text-ink">{l.cmd}</span></div> : <div className="mt-0.5 text-dim/70">nalu ❯ deciding the command…</div>}
                 {l.out && <pre className="mt-0.5 whitespace-pre-wrap text-[11px] text-dim">{l.out}</pre>}
               </div>
             ))}
