@@ -11,6 +11,50 @@ export function setToken(t: string): void {
   localStorage.setItem('nalu-token', t)
 }
 
+// ---- Auth: the SAME accounts + sessions table as n4lu.ai. Signing in here with
+// your web email/password mints a session tied to the exact same DB user, so the
+// AI, specialists, quotas, and saved data are identical to the browser. --------
+export type NaluUser = { id: string; displayName: string }
+
+export function currentUser(): NaluUser | null {
+  try { return JSON.parse(localStorage.getItem('nalu-user') || 'null') } catch { return null }
+}
+
+async function authRequest(action: string, body: Record<string, unknown>): Promise<{ ok?: boolean; error?: string; user?: NaluUser; token?: string }> {
+  const res = await fetch(`${API_BASE}/api/auth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+    body: JSON.stringify({ action, ...body }),
+  })
+  return res.json().catch(() => ({ ok: false, error: 'Network error' }))
+}
+
+export async function signIn(email: string, password: string): Promise<{ ok: boolean; error?: string; user?: NaluUser }> {
+  const d = await authRequest('signin', { email, password })
+  if (d.ok && d.token && d.user) { setToken(d.token); localStorage.setItem('nalu-user', JSON.stringify(d.user)) }
+  return { ok: !!d.ok, error: d.error, user: d.user }
+}
+
+export async function signUp(email: string, password: string, displayName?: string): Promise<{ ok: boolean; error?: string; user?: NaluUser }> {
+  const d = await authRequest('signup', { email, password, displayName })
+  if (d.ok && d.token && d.user) { setToken(d.token); localStorage.setItem('nalu-user', JSON.stringify(d.user)) }
+  return { ok: !!d.ok, error: d.error, user: d.user }
+}
+
+// Verify the stored token still maps to a live user (same DB row as the browser).
+export async function fetchMe(): Promise<NaluUser | null> {
+  if (!getToken()) return null
+  const d = await authRequest('me', {})
+  if (d.user) localStorage.setItem('nalu-user', JSON.stringify(d.user))
+  return d.user ?? null
+}
+
+export function signOut(): void {
+  void authRequest('signout', {})
+  localStorage.removeItem('nalu-token')
+  localStorage.removeItem('nalu-user')
+}
+
 type Part = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
 export type WireMessage = { role: 'user' | 'assistant' | 'system'; content: string | Part[] }
 
