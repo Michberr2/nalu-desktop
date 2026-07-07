@@ -1,5 +1,6 @@
-import { GitBranch, Check, Sparkles } from 'lucide-react'
+import { GitBranch, Check } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
+import wolfUrl from '../lib/wolf'
 
 export default function StatusBar() {
   const ws = useWorkspace()
@@ -11,7 +12,7 @@ export default function StatusBar() {
       <div className="flex-1" />
       {ws.active && <span className="text-dim">{ws.active.dirty ? 'Unsaved' : 'Saved'}</span>}
       {lang && <span>{lang}</span>}
-      <span className="flex items-center gap-1 text-gold"><Sparkles size={11} /> Nalu</span>
+      <span className="flex items-center gap-1.5 text-gold"><img src={wolfUrl} alt="" className="h-3.5 w-3.5" style={{ filter: 'brightness(0) invert(1)' }} /> Nalu</span>
       <button onClick={() => ws.setPaletteOpen(true)} className="hover:text-ink">⌘K</button>
     </div>
   )
