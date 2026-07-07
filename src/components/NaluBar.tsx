@@ -134,7 +134,10 @@ export default function NaluBar() {
   const toolIcon = (t: string) => t === 'read_file' ? FileText : t === 'list_dir' ? FolderTree : t === 'search' ? SearchIcon : t === 'run' ? Terminal : Pencil
   const toolLabel = (a: AgentTool) => a.tool === 'read_file' ? `Read ${a.path}` : a.tool === 'list_dir' ? `List ${a.path}` : a.tool === 'search' ? `Search "${a.query}"` : a.tool === 'run' ? `Run: ${a.command}` : a.tool === 'write_file' ? `Edit ${a.path}` : 'Done'
 
-  const pcLabel = (a: PcTool) => a.tool === 'browse' ? `Browse ${a.url}` : a.tool === 'read_page' ? 'Read page' : a.tool === 'page_js' ? 'Act on page' : a.tool === 'open' ? `Open ${a.target}` : a.tool === 'shell' ? `Run: ${a.command}` : a.tool === 'applescript' ? 'AppleScript' : a.tool === 'type' ? `Type "${a.text.slice(0, 30)}"` : a.tool === 'key' ? `Press ${a.combo}` : a.tool === 'click' ? `Click ${a.x},${a.y}` : a.tool === 'see' ? 'Look at screen' : 'Done'
+  // Short human title for an action.
+  const pcLabel = (a: PcTool) => a.tool === 'browse' ? 'Open website' : a.tool === 'read_page' ? 'Read the page' : a.tool === 'page_js' ? 'Act on the page' : a.tool === 'open' ? `Open ${a.target}` : a.tool === 'shell' ? 'Run command' : a.tool === 'applescript' ? 'Control an app (AppleScript)' : a.tool === 'type' ? 'Type text' : a.tool === 'key' ? `Press ${a.combo}` : a.tool === 'click' ? `Click at ${a.x}, ${a.y}` : a.tool === 'see' ? 'Look at the screen' : 'Finish'
+  // The exact thing being done — so you see (and can approve) precisely what runs.
+  const pcDetail = (a: PcTool): string => a.tool === 'browse' ? a.url : a.tool === 'page_js' ? a.code : a.tool === 'shell' ? a.command : a.tool === 'applescript' ? a.script : a.tool === 'type' ? a.text : a.tool === 'open' ? a.target : ''
 
   return (
     <div className="shrink-0">
@@ -151,19 +154,31 @@ export default function NaluBar() {
           </div>
           <div ref={scrollRef} className="max-h-[46vh] space-y-1.5 overflow-y-auto p-3 text-[12px]">
             {pcLog.map((s, i) => {
-              if (s.kind === 'thought') return <div key={i} className="text-dim">{s.text}</div>
-              if (s.kind === 'action') return <div key={i} className="flex items-center gap-1.5 font-medium text-ink"><MousePointerClick size={13} className="shrink-0 text-gold" /><span className="truncate">{pcLabel(s.action)}</span></div>
-              if (s.kind === 'result') return <div key={i} className="truncate text-[11px] text-dim">{s.text}</div>
-              if (s.kind === 'screenshot') return <img key={i} src={s.url} alt="screen" className="w-full rounded-lg border border-glass/[0.12]" />
-              if (s.kind === 'done') return <div key={i} className="flex items-start gap-1.5 font-medium text-gold"><CheckCircle2 size={14} className="mt-0.5 shrink-0" />{s.text}</div>
-              return <div key={i} className="text-red-300">{s.text}</div>
+              if (s.kind === 'thought') return <div key={i} className="text-[11px] italic text-dim">{s.text}</div>
+              if (s.kind === 'action') {
+                const d = pcDetail(s.action)
+                return (
+                  <div key={i}>
+                    <div className="flex items-center gap-1.5 font-medium text-ink"><MousePointerClick size={13} className="shrink-0 text-gold" /><span>{pcLabel(s.action)}</span></div>
+                    {d && <pre className="ml-[18px] mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-black/25 px-2 py-1 font-mono text-[10.5px] text-gold/90">{d}</pre>}
+                  </div>
+                )
+              }
+              // RESULT = the proof of what happened — shown in full (scrollable).
+              if (s.kind === 'result') return <div key={i} className="ml-[18px] max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-glass/[0.04] px-2 py-1 text-[11px] text-dim">{s.text}</div>
+              if (s.kind === 'screenshot') return <div key={i}><div className="mb-1 text-[10px] uppercase tracking-wide text-dim">what Nalu sees:</div><img src={s.url} alt="screen" className="w-full rounded-lg border border-glass/[0.12]" /></div>
+              if (s.kind === 'done') return <div key={i} className="flex items-start gap-1.5 whitespace-pre-wrap font-medium text-gold"><CheckCircle2 size={14} className="mt-0.5 shrink-0" />{s.text}</div>
+              return <div key={i} className="whitespace-pre-wrap rounded bg-red-500/10 px-2 py-1 text-red-300">{s.text}</div>
             })}
             {pcPending && (
-              <div className="rounded-xl border border-gold/40 bg-panel2 p-2">
-                <div className="mb-2 truncate text-[12px] font-medium text-gold">Approve: {pcLabel(pcPending.action)}</div>
-                <div className="flex gap-1.5">
+              <div className="rounded-xl border border-gold/40 bg-panel2 p-2.5">
+                <div className="mb-0.5 text-[10px] uppercase tracking-wide text-dim">Approve this action:</div>
+                <div className="text-[12px] font-semibold text-gold">{pcLabel(pcPending.action)}</div>
+                {pcDetail(pcPending.action) && <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-all rounded bg-black/30 px-2 py-1 font-mono text-[10.5px] text-ink">{pcDetail(pcPending.action)}</pre>}
+                <div className="mt-2 flex gap-1.5">
                   <button onClick={() => { pcPending.resolve(true); setPcPending(null) }} className="rounded-md bg-gold/90 px-2.5 py-1 text-[11px] font-medium text-[#15170f] hover:bg-gold">Approve</button>
                   <button onClick={() => { pcPending.resolve(false); setPcPending(null) }} className="rounded-md border border-glass/[0.1] px-2.5 py-1 text-[11px] text-dim hover:text-ink">Deny</button>
+                  <label className="ml-auto flex cursor-pointer items-center gap-1 text-[10px] text-dim"><input type="checkbox" checked={autoApprove} onChange={(e) => setAutoApprove(e.target.checked)} className="accent-[#af8c56]" /> approve the rest</label>
                 </div>
               </div>
             )}

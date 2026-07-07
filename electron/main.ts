@@ -301,6 +301,46 @@ ipcMain.handle('pc:open', async (_e, target: string) => {
   return await new Promise<boolean>((res) => { const p = spawn('open', args); p.on('close', c => res(c === 0)); p.on('error', () => res(false)) })
 })
 
+// ---- Nalu Browser: an IN-APP Chromium window the agent fully controls via
+// executeJavaScript. No Chrome toggle, no permissions — it's our own browser,
+// visible so the user watches (and can solve a login/captcha in it). This is the
+// reliable path for real web tasks (reservations, posting, email). ------------
+let webWin: BrowserWindow | null = null
+function naluBrowser(): BrowserWindow {
+  if (webWin && !webWin.isDestroyed()) return webWin
+  webWin = new BrowserWindow({
+    width: 1200, height: 900, show: true, title: 'Nalu Browser',
+    webPreferences: {
+      partition: 'persist:nalu-web', // persists logins across tasks
+      preload: path.join(__dirname, 'webpreload.js'), // masks automation fingerprints
+      contextIsolation: false,
+    },
+  })
+  webWin.webContents.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36')
+  webWin.on('closed', () => { webWin = null })
+  return webWin
+}
+ipcMain.handle('pc:webOpen', async (_e, url: string) => {
+  const w = naluBrowser()
+  try {
+    await w.loadURL(/^https?:\/\//.test(url) ? url : `https://${url}`)
+    await new Promise((r) => setTimeout(r, 1200)) // let client JS settle
+    w.focus()
+    return true
+  } catch { return false }
+})
+ipcMain.handle('pc:webJs', async (_e, code: string, wantResult: boolean) => {
+  if (!webWin || webWin.isDestroyed()) return { ok: false, out: 'no Nalu Browser open — use webOpen first' }
+  try {
+    const out = await webWin.webContents.executeJavaScript(code, true)
+    return { ok: true, out: wantResult ? String(out ?? '').slice(0, 8000) : 'done' }
+  } catch (e) { return { ok: false, out: e instanceof Error ? e.message : 'js error' } }
+})
+ipcMain.handle('pc:webShot', async () => {
+  if (!webWin || webWin.isDestroyed()) return ''
+  try { const img = await webWin.webContents.capturePage(); return img.toDataURL() } catch { return '' }
+})
+
 // ---- Browser automation (drive Chrome/Safari via JS in the real page) -------
 // Reading and acting on the actual DOM is FAR more reliable than pixel-clicking
 // for web tasks (reservations, email, forms). Requires the browser to allow JS

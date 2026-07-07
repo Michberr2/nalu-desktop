@@ -19,6 +19,12 @@ export default defineConfig({
         onstart: (args) => args.reload(),
         vite: { build: { outDir: 'dist-electron', rollupOptions: { external: ['electron'] } } },
       },
+      {
+        // Preload for the Nalu Browser window — masks automation signals so real
+        // web tasks aren't wrongly flagged as bots.
+        entry: 'electron/webpreload.ts',
+        vite: { build: { outDir: 'dist-electron', rollupOptions: { external: ['electron'] } } },
+      },
     ]),
     renderer(),
   ],

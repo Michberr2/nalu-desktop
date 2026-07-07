@@ -29,10 +29,12 @@ export type PcStep =
 
 const PC_SYSTEM = `You are Nalu Catalina — a world-class expert at operating a Mac. You complete the user's task by acting on the computer, ONE step at a time. You are DEADLY ACCURATE and prefer the fastest reliable method.
 
+You have a built-in NALU BROWSER (your own Chromium window you fully control — no setup, logins persist across tasks). Use it for ALL web work.
+
 You MUST reply with EXACTLY one JSON action inside a \`\`\`json fence (one short sentence of reasoning before the fence is allowed, nothing after). The tools:
-{"tool":"browse","url":"https://..."}           // open a URL in the real browser (waits for load)
-{"tool":"read_page"}                             // READ the current web page: its title, url, visible text, and clickable elements. Use this to SEE web pages (better than a screenshot).
-{"tool":"page_js","code":"..."}                  // run JavaScript IN the page to click/fill/submit, e.g. document.querySelector('input[name=q]').value='hi'; document.querySelector('button[type=submit]').click()
+{"tool":"browse","url":"https://..."}           // open a URL in the Nalu Browser (waits for load)
+{"tool":"read_page"}                             // READ the current page: title, url, visible text, and clickable elements. Use this to SEE web pages and to READ other people's posts/comments before you act.
+{"tool":"page_js","code":"..."}                  // run JavaScript IN the page to click/fill/submit. Use real selectors, e.g. document.querySelector('input[name="q"]').value='hi'; and to click, find the element by its text and call .click(). To submit a React input, set .value then dispatch an 'input' event so the app registers it.
 {"tool":"open","target":"Mail"}                 // open an app by name (or a URL)
 {"tool":"applescript","script":"..."}           // control native apps: Mail, Calendar, Messages, Finder, System Events
 {"tool":"shell","command":"..."}                // run a terminal command
@@ -53,9 +55,11 @@ STRATEGY — be fast, thorough, and DEADLY ACCURATE. Do NOT give up after one or
    - STANDING / RECURRING reservations: platforms don't offer "recurring" natively — so REPEAT the full online booking flow once per requested date (e.g. every Friday 7pm for 4 people), one at a time, until all requested dates are booked; then report each confirmation.
    - EMAIL: browse "https://mail.google.com", read_page, and use page_js/keys to read, compose, archive, or reorganize. For Mail.app, use applescript.
 2. NATIVE apps → applescript. System/CLI things → shell. These are instant and need no screenshot.
-3. Use "see"/"click" only for non-web GUI elements you can't reach through the DOM.
-4. If read_page/page_js says browser JS is disabled, tell the user (via done) the one-time toggle to flip, then stop — you can't proceed on the web without it.
-Persist across MANY steps (booking can take 8-15). NEVER reply with prose only — ALWAYS emit a JSON action. Report "done" only on a confirmed result or a concrete blocker.`
+3. Use "see"/"click" only for non-web native GUI elements you can't reach through the DOM.
+4. READ BEFORE YOU ACT: on social/email, read_page to understand other people's posts/comments (what they actually said) BEFORE composing a reply, so your response is relevant. For Gmail cleanup, read the list, then use page_js to label/archive/delete in batches.
+5. If a page needs a LOGIN, shows a CAPTCHA, or returns "Access Denied"/a bot-wall you can't pass, DON'T give up on the whole task: the Nalu Browser is VISIBLE and your session persists. Say (via done) exactly what the user should do in that window — "please sign in / solve the check / click into the site in the Nalu Browser, then re-run this and I'll continue" — and stop. When they re-run, read_page again and pick up from the new state. Never fabricate accounts or credentials.
+6. Prefer navigating WITHIN a site (search box + clicking results via page_js) over browsing deep URLs directly — some sites block direct deep links but allow in-site navigation.
+Persist across MANY steps (booking/posting/cleanup can take 8-20). NEVER reply with prose only — ALWAYS emit a JSON action. Report "done" only on a confirmed result or a concrete blocker.`
 
 // Robust parse: fenced json, bare json, or the first {...}; tolerant of extra prose.
 function parsePc(text: string): { thought: string; action: PcTool | null } {
@@ -87,15 +91,16 @@ export async function runComputer(opts: {
     { role: 'user', content: `TASK: ${task}\n\nDecide the first action. Prefer open/applescript/shell — don't take a screenshot unless you must click a visual element.` },
   ]
 
-  // Read the current web page as text + a compact list of clickable elements —
-  // the agent's reliable way to "see" and act on the web.
+  // Read the current Nalu Browser page as text + a compact list of clickable
+  // elements — the agent's reliable way to "see" and act on the web. Runs in our
+  // own Chromium (no Chrome toggle needed).
   const readPage = async (): Promise<string> => {
-    const code = `(function(){try{var els=[].slice.call(document.querySelectorAll('a,button,input,textarea,select,[role=button]'));var items=[];for(var i=0;i<els.length&&items.length<50;i++){var e=els[i];var t=(e.innerText||e.value||e.placeholder||e.getAttribute('aria-label')||'').trim().replace(/\\s+/g,' ').slice(0,60);if(t)items.push('<'+e.tagName.toLowerCase()+(e.name?' name='+e.name:'')+(e.type?' type='+e.type:'')+'> '+t);}return JSON.stringify({title:document.title,url:location.href,text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,2500),elements:items});}catch(err){return 'ERR '+err;}})()`
-    const r = await window.nalu.pc.browserRun(code, true)
-    if (!r.ok || !r.out) return `could not read the page (${r.out?.slice(0, 200) || 'no browser'}). If Safari, enable Develop → Allow JavaScript from Apple Events, or use Chrome.`
+    const code = `(function(){try{var els=[].slice.call(document.querySelectorAll('a,button,input,textarea,select,[role=button],[role=option],[data-testid]'));var items=[];for(var i=0;i<els.length&&items.length<60;i++){var e=els[i];var t=(e.innerText||e.value||e.placeholder||e.getAttribute('aria-label')||'').trim().replace(/\\s+/g,' ').slice(0,70);if(t)items.push('<'+e.tagName.toLowerCase()+(e.name?' name='+JSON.stringify(e.name):'')+(e.type?' type='+e.type:'')+'> '+t);}return JSON.stringify({title:document.title,url:location.href,text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,3000),elements:items});}catch(err){return JSON.stringify({error:String(err)});}})()`
+    const r = await window.nalu.pc.webJs(code, true)
+    if (!r.ok || !r.out) return `could not read the page (${r.out?.slice(0, 200) || 'open a page first with browse'}).`
     try {
       const p = JSON.parse(r.out) as { title: string; url: string; text: string; elements: string[] }
-      return `PAGE: ${p.title}\nURL: ${p.url}\nTEXT: ${p.text}\nCLICKABLE ELEMENTS:\n${(p.elements || []).join('\n')}`
+      return `PAGE: ${p.title}\nURL: ${p.url}\nTEXT: ${p.text}\n\nCLICKABLE ELEMENTS:\n${(p.elements || []).join('\n')}`
     } catch { return r.out.slice(0, 3000) }
   }
 
@@ -162,9 +167,9 @@ export async function runComputer(opts: {
     let result = ''
     try {
       if (action.tool === 'see') { result = await describeScreen() }
-      else if (action.tool === 'browse') { const ok = await window.nalu.pc.browserOpen(action.url); result = ok ? `opened ${action.url}. Use read_page to see it.` : `could not open ${action.url}` }
-      else if (action.tool === 'read_page') { result = await readPage() }
-      else if (action.tool === 'page_js') { const r = await window.nalu.pc.browserRun(action.code, true); result = r.ok ? `ran. result: ${r.out.slice(0, 3000)}` : `page_js error: ${r.out.slice(0, 500)} (if "not allowed", tell the user to enable Safari Develop → Allow JavaScript from Apple Events, or use Chrome)` }
+      else if (action.tool === 'browse') { const ok = await window.nalu.pc.webOpen(action.url); if (ok) { const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }) } result = ok ? `opened ${action.url} in the Nalu Browser. Use read_page to see it.` : `could not open ${action.url}` }
+      else if (action.tool === 'read_page') { result = await readPage(); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }) }
+      else if (action.tool === 'page_js') { const r = await window.nalu.pc.webJs(action.code, true); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }); result = r.ok ? `ran. result: ${r.out.slice(0, 3000)}` : `page_js error: ${r.out.slice(0, 500)}` }
       else if (action.tool === 'open') { result = (await window.nalu.pc.open(action.target)) ? `opened ${action.target}` : `could not open ${action.target}` }
       else if (action.tool === 'shell') { const r = await window.nalu.exec('', action.command); result = `exit ${r.code}\n${r.output.slice(0, 6000)}` }
       else if (action.tool === 'applescript') { const r = await window.nalu.pc.applescript(action.script); result = (r.ok ? 'ok ' : 'error ') + r.out.slice(0, 4000) }
