@@ -64,6 +64,13 @@ function Term({ id, active, folder, shell }: { id: string; active: boolean; fold
 
   // Refit AND focus when this tab becomes visible, so typing works immediately.
   useEffect(() => { if (active) setTimeout(() => { fitRef.current?.fit(); termRef.current?.focus() }, 30) }, [active])
+  // Always follow the folder you're working in: cd the live shell when it changes
+  // (the first mount already spawns in the right cwd, so skip that one).
+  const firstFolder = useRef(true)
+  useEffect(() => {
+    if (firstFolder.current) { firstFolder.current = false; return }
+    if (folder) window.nalu.term.input(id, ` cd ${JSON.stringify(folder)} && clear\n`)
+  }, [folder, id])
 
   // Click anywhere in the terminal focuses it (belt-and-suspenders for typing).
   return <div ref={hostRef} onMouseDown={() => termRef.current?.focus()} className="h-full w-full px-2 py-1" style={{ display: active ? 'block' : 'none' }} />

@@ -391,7 +391,7 @@ export async function runAgent(opts: {
       // code away with another turn (which is what made this fail before).
       writes = extractFileWrites(reply)
       if (writes.length) break
-      history.push({ role: 'assistant', content: reply }, { role: 'user', content: 'That was not a valid action, and you must NOT refuse — you have full tool access to this machine. Reply with ONLY one JSON action in a ```json fence. For a files/computer question use {"tool":"run","command":"ls -la ~/"}. ACT now.' })
+      history.push({ role: 'assistant', content: reply }, { role: 'user', content: 'STOP explaining — you have REAL tools on this machine. Do NOT describe the fix in prose. Emit ONLY one JSON action in a ```json fence, nothing else. Inspect first: {"tool":"read_file","path":"the/file"}. Fix precisely: {"tool":"edit_file","path":"the/file","find":"<exact text copied verbatim from the file>","replace":"<corrected text>"}. Verify: {"tool":"run","command":"the build/test command"}. ACT now.' })
     }
     if (thought) onStep({ kind: 'thought', text: thought })
     history.push({ role: 'assistant', content: reply })
@@ -412,13 +412,20 @@ export async function runAgent(opts: {
         history.push({ role: 'user', content: `RESULT: applied ${applied.length} file(s): ${applied.join(', ')}. Now RUN the test or build to verify it works; if it fails, read the error and fix it. Reply with ONE json tool action.` })
         continue
       }
-      // Fallback: the model kept refusing. For a filesystem/exploration ask, just
-      // run it. Otherwise report honestly (but this is rare now).
+      // For a filesystem/"what's in my folder" ask, just run it directly.
       const t = task.toLowerCase()
-      const m = t.match(/(?:in|of|inside|what'?s in|list|show|contents of)\s+(?:my\s+)?([\w./~-]+)\s*(?:folder|directory|dir)?/)
-      const target = /computer|home|my (files|folder|stuff)|michaelberryii/.test(t) ? '~/' : (m && m[1] ? m[1].replace(/folder|directory|dir/g, '').trim() : '~/')
-      onStep({ kind: 'thought', text: `Running it directly: ls ${target}` })
-      action = { tool: 'run', command: `ls -la ${target}` }
+      const isFsQuestion = /computer|home|my (files|folder|stuff)|michaelberryii|what'?s in|contents of|list (the|my)?\s*(files|folder|dir)/.test(t)
+      if (isFsQuestion) {
+        const m = t.match(/(?:in|of|inside|what'?s in|list|show|contents of)\s+(?:my\s+)?([\w./~-]+)\s*(?:folder|directory|dir)?/)
+        const target = /computer|home|my (files|folder|stuff)|michaelberryii/.test(t) ? '~/' : (m && m[1] ? m[1].replace(/folder|directory|dir/g, '').trim() : '~/')
+        onStep({ kind: 'thought', text: `Running it directly: ls ${target}` })
+        action = { tool: 'run', command: `ls -la ${target}` }
+      } else {
+        // Coding task: don't give up — force it to inspect + act, then loop again.
+        onStep({ kind: 'thought', text: 'Directing the model to use its tools…' })
+        history.push({ role: 'user', content: 'You have REAL tools. Do NOT explain — emit ONE JSON action in a ```json fence now. read_file the relevant file, then edit_file with the EXACT text from it, then run the build/test to verify. Keep going until it passes.' })
+        continue
+      }
     }
     if (action.tool === 'done') { onStep({ kind: 'done', text: action.summary || 'Done.' }); return }
 
