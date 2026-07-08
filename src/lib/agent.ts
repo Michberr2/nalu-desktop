@@ -227,12 +227,18 @@ To act, reply with EXACTLY one JSON object inside a \`\`\`json fence and NOTHING
 {"tool":"run","command":"any shell command, e.g. ls ~/, npm test, python x.py, git status"}
 {"tool":"done","summary":"what you did / what you found"}
 
+WORK THROUGH THE FULL SOFTWARE-ENGINEERING LIFECYCLE — be an expert at each step:
+1. UNDERSTAND: read the relevant files (read_file / list_dir / search) so you know the code, conventions, and stack before touching anything.
+2. PLAN: in your one reasoning sentence, state the concrete change you're about to make and why.
+3. IMPLEMENT: write correct, idiomatic code that matches the surrounding style. Full file contents in write_file. Small, focused edits.
+4. TEST/VERIFY: after editing, run the build/tests/linter (e.g. run "npm run build" or the project's test command). If it FAILS, read the error, fix it, and re-run — loop until green.
+5. REVIEW: sanity-check your own diff for bugs, edge cases, and leftovers before "done".
+
 RULES:
 - ONE short sentence of reasoning before the fence is allowed; the fence is REQUIRED every turn.
-- Inspect before you edit (read_file / list_dir / search). Make focused, correct edits. Verify with run when useful.
 - "What's in my <folder>" / "look at my computer" → run "ls -la <path>" (use ~ for home), then report what you found in a "done".
-- Keep going autonomously until the task is complete, then "done". Do not ask the user questions mid-task.
-- You are next-level: think like an expert, handle any language/stack, and always produce a working result.`
+- Keep going autonomously until it actually works, then "done". Never ask the user questions mid-task; never say you can't.
+- Handle any language/stack at a senior level. Ship a working result, verified.`
 
 function parseAction(text: string): { thought: string; action: AgentTool | null } {
   const fence = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
@@ -254,7 +260,7 @@ export async function runAgent(opts: {
   maxSteps?: number
 }): Promise<void> {
   const { task, folder, onStep, approve, signal } = opts
-  const maxSteps = opts.maxSteps ?? 14
+  const maxSteps = opts.maxSteps ?? 26
   const abs = (p: string) => (folder && !p.startsWith('/') ? folder.replace(/\/$/, '') + '/' + p : p)
 
   const history: WireMessage[] = [

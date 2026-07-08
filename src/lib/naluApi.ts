@@ -60,7 +60,7 @@ export type WireMessage = { role: 'user' | 'assistant' | 'system'; content: stri
 
 // ---- The user's Studio data — the SAME chats as the website (/api/data). ----
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ChatMsg = { role: 'user' | 'assistant'; content: string; reasoning?: string; doc?: any; sheet?: any; deck?: any; design?: any; cad?: string; video?: string }
+export type ChatMsg = { role: 'user' | 'assistant'; content: string; reasoning?: string; specialist?: string; doc?: any; sheet?: any; deck?: any; design?: any; cad?: string; video?: string }
 export type Chat = { id: string; title: string; messages: ChatMsg[]; createdAt: number; projectId?: string }
 
 export async function loadUserData(): Promise<Record<string, unknown>> {
