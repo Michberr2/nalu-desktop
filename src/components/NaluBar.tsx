@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Check, Square, ChevronDown, X, FileText, FolderTree, Search as SearchIcon, Terminal, Pencil, CheckCircle2, Monitor, MousePointerClick } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import { streamChat, type WireMessage } from '../lib/naluApi'
@@ -34,6 +34,38 @@ export default function NaluBar() {
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollDown = () => requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight })
+
+  // @-mentions (Cursor-style): type @ to fuzzy-pick a file/folder → drop its path
+  // into the prompt so Nalu uses it as context.
+  const [files, setFiles] = useState<string[]>([])
+  const [at, setAt] = useState<{ q: string; sel: number } | null>(null)
+  useEffect(() => {
+    let cancel = false
+    void (async () => {
+      if (!ws.folder) { setFiles([]); return }
+      const out: string[] = []
+      const walk = async (dir: string, depth: number) => {
+        if (depth > 6 || out.length > 5000) return
+        let ents: { name: string; path: string; dir: boolean }[] = []
+        try { ents = await window.nalu.readDir(dir) } catch { return }
+        for (const e of ents) {
+          if (/^(node_modules|\.git|dist|release|build|\.next|out)$/.test(e.name)) continue
+          out.push(e.path.replace((ws.folder || '') + '/', ''))
+          if (e.dir) await walk(e.path, depth + 1)
+        }
+      }
+      await walk(ws.folder, 0)
+      if (!cancel) setFiles(out)
+    })()
+    return () => { cancel = true }
+  }, [ws.folder])
+  const atMatches = at ? files.filter((f) => f.toLowerCase().includes(at.q.toLowerCase())).slice(0, 8) : []
+  const onInputChange = (v: string) => {
+    setInput(v)
+    const m = v.match(/(?:^|\s)@([\w./-]*)$/)
+    setAt(m ? { q: m[1], sel: 0 } : null)
+  }
+  const pickAt = (rel: string) => { setInput((v) => v.replace(/@[\w./-]*$/, rel + ' ')); setAt(null) }
 
   const runAgentTask = async (task: string) => {
     setAgentLog([{ kind: 'thought', text: `Task: ${task}` }])
@@ -294,14 +326,35 @@ export default function NaluBar() {
         </div>
       )}
 
+      {/* @-mention picker */}
+      {at && atMatches.length > 0 && (
+        <div className="mb-1.5 overflow-hidden rounded-xl border border-glass/[0.12] bg-panel2/95 py-1 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl">
+          <div className="px-3 py-1 text-[9.5px] font-semibold uppercase tracking-[0.16em] text-gold">Add context</div>
+          {atMatches.map((f, i) => (
+            <button key={f} onMouseDown={(e) => { e.preventDefault(); pickAt(f) }} onMouseEnter={() => setAt((a) => (a ? { ...a, sel: i } : a))}
+              className={`flex w-full items-center gap-2 px-3 py-1 text-left text-[12px] ${i === at.sel ? 'bg-glass/[0.12] text-ink' : 'text-dim'}`}>
+              <FileText size={12} className="shrink-0 opacity-70" /><span className="truncate">{f}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* the always-on prompt bar */}
       <div className="rounded-2xl border border-glass/[0.1] bg-panel/80 p-2 backdrop-blur-2xl">
         <div className="flex items-end gap-2">
           <img src={wolfUrl} alt="" className="mb-1 ml-1 h-5 w-5 shrink-0 rounded" style={{ filter: 'brightness(0) invert(1)' }} />
           <textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (at && atMatches.length) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setAt({ ...at, sel: (at.sel + 1) % atMatches.length }); return }
+                if (e.key === 'ArrowUp') { e.preventDefault(); setAt({ ...at, sel: (at.sel - 1 + atMatches.length) % atMatches.length }); return }
+                if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickAt(atMatches[at.sel]); return }
+                if (e.key === 'Escape') { e.preventDefault(); setAt(null); return }
+              }
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
+            }}
             onDragOver={(e) => { if (e.dataTransfer.types.includes('text/plain')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
             onDrop={(e) => {
               // Drop a file/folder from the tree → drop its path into the prompt.
