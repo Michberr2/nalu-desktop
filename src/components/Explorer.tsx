@@ -34,6 +34,8 @@ function TreeNode({ node, depth, onMenu }: { node: Node; depth: number; onMenu: 
     <div>
       <button
         onClick={toggle}
+        draggable
+        onDragStart={(e) => { e.dataTransfer.setData('text/plain', node.path); e.dataTransfer.effectAllowed = 'copy' }}
         onContextMenu={(e) => { e.preventDefault(); onMenu({ x: e.clientX, y: e.clientY, node }) }}
         className={`group flex w-full items-center gap-1 rounded px-1 py-[3px] text-left text-[13px] hover:bg-glass/[0.05] ${
           isActive ? 'bg-glass/[0.08] text-ink' : 'text-dim'

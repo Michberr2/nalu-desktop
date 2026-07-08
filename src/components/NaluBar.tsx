@@ -302,8 +302,15 @@ export default function NaluBar() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+            onDragOver={(e) => { if (e.dataTransfer.types.includes('text/plain')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
+            onDrop={(e) => {
+              // Drop a file/folder from the tree → drop its path into the prompt.
+              const paths = [...(e.dataTransfer.files || [])].map((f) => (f as File & { path?: string }).path).filter(Boolean) as string[]
+              const dropped = paths.length ? paths.join(' ') : e.dataTransfer.getData('text/plain')
+              if (dropped) { e.preventDefault(); setInput((v) => (v ? v.replace(/\s*$/, ' ') : '') + dropped + ' ') }
+            }}
             rows={1}
-            placeholder={mode === 'edit' ? 'Tell Nalu how to change this file…' : mode === 'agent' ? 'Give Nalu a coding task…' : mode === 'computer' ? 'Tell Nalu Catalina what to do on your Mac…' : mode === 'terminal' ? 'nalu ❯  type a command…' : 'Ask Nalu anything…'}
+            placeholder={mode === 'edit' ? 'Tell Nalu how to change this file…' : mode === 'agent' ? 'Give Nalu a coding task…' : mode === 'computer' ? 'Tell Nalu what to do on your Mac…' : mode === 'terminal' ? 'nalu ❯  type a command…' : 'Ask Nalu anything…'}
             className={`max-h-40 flex-1 resize-none bg-transparent px-1 py-1.5 text-[14px] text-ink outline-none placeholder:text-dim ${mode === 'terminal' ? 'font-mono' : ''}`}
           />
           <div className="mb-0.5 flex items-center gap-1.5">
