@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { currentUser, type NaluUser } from './naluApi'
 
 export type Tab = { path: string; name: string; content: string; dirty: boolean }
@@ -15,6 +15,7 @@ type Ctx = {
   closeTab: (path: string) => void
   editActive: (content: string) => void
   saveActive: () => Promise<void>
+  reloadTabs: () => Promise<void>
   // one drawer (files), one bottom panel (terminal), one modal (settings)
   filesOpen: boolean
   setFilesOpen: (b: boolean) => void
@@ -132,6 +133,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     refresh() // update the git "Changes" view so edits show immediately
   }, [tabs, activePath, refresh])
 
+  // When the AGENT edits files on disk, pull those changes into any open tabs so
+  // the editor shows them AND the autosave never clobbers them with stale content.
+  const tabsRef = useRef<Tab[]>(tabs); tabsRef.current = tabs
+  const reloadTabs = useCallback(async () => {
+    const next = await Promise.all(tabsRef.current.map(async (t) => {
+      try { const content = await window.nalu.readFile(t.path); return content === t.content ? t : { ...t, content, dirty: false } } catch { return t }
+    }))
+    if (next.some((t, i) => t !== tabsRef.current[i])) setTabs(next)
+  }, [])
+
   const active = useMemo(() => tabs.find((t) => t.path === activePath) ?? null, [tabs, activePath])
 
   // Auto-save (VS Code "afterDelay"): 700ms after the last edit, persist the file
@@ -146,7 +157,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const value: Ctx = {
     folder, openFolder, openFolderAt,
     tabs, activePath, active,
-    openFile, setActive: setActivePath, closeTab, editActive, saveActive,
+    openFile, setActive: setActivePath, closeTab, editActive, saveActive, reloadTabs,
     filesOpen, setFilesOpen, termOpen, setTermOpen, paletteOpen, setPaletteOpen,
     settingsOpen, setSettingsOpen, routeName, setRouteName,
     refreshKey, refresh,
