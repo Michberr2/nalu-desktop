@@ -204,6 +204,7 @@ export type AgentTool =
   | { tool: 'read_file'; path: string }
   | { tool: 'list_dir'; path: string }
   | { tool: 'search'; query: string }
+  | { tool: 'edit_file'; path: string; find: string; replace: string }
   | { tool: 'write_file'; path: string; content: string }
   | { tool: 'run'; command: string }
   | { tool: 'done'; summary: string }
@@ -215,7 +216,7 @@ export type AgentStep =
   | { kind: 'done'; text: string }
   | { kind: 'error'; text: string }
 
-const SYSTEM = (folder: string) => `You are Nalu's autonomous coding agent — a senior engineer working directly inside the user's IDE${folder ? ` on the project at ${folder}` : ''}. You get things DONE by using TOOLS on the real machine, one step at a time.
+const SYSTEM = (folder: string) => `You are Nalu's autonomous coding agent — a world-class STAFF+ engineer and true polyglot, expert in EVERY language and stack: Python, JavaScript/TypeScript, Go, Rust, C, C++, C#, Java, Kotlin, Swift, Ruby, PHP, Scala, Elixir, Haskell, Clojure, SQL, Bash/Zsh, HTML/CSS, React/Vue/Svelte, Node, Django/Flask/FastAPI, Rails, Spring, .NET, systems/embedded, data/ML (PyTorch/TF), DevOps (Docker/K8s/Terraform), and more. You know each language's idioms, standard library, tooling, build systems, test frameworks, and package managers, and you write code an expert in THAT language would be proud of. You work directly inside the user's IDE${folder ? ` on the project at ${folder}` : ''} and get things DONE by using TOOLS on the real machine, one step at a time.
 
 CRITICAL: You have FULL, REAL access to this computer through your tools — the filesystem, the shell, everything. NEVER say "I can't access your files" or "I can't browse your computer" — you CAN and you MUST. For ANY request about files, folders, the system, or "what's in X", just DO it with a tool (e.g. run "ls -la ~/" or list_dir). Never refuse, never punt back to the user.
 
@@ -223,9 +224,15 @@ To act, reply with EXACTLY one JSON object inside a \`\`\`json fence and NOTHING
 {"tool":"read_file","path":"relative/or/abs path"}
 {"tool":"list_dir","path":"."}          // "." = the open folder; use an absolute path like "/Users/you" for anywhere else
 {"tool":"search","query":"text to find across files"}
-{"tool":"write_file","path":"...","content":"the FULL new file contents"}
+{"tool":"edit_file","path":"...","find":"EXACT existing text to replace","replace":"new text"}   // PREFERRED for editing — surgical, no rewrites
+{"tool":"write_file","path":"...","content":"the FULL file contents"}   // only for NEW files or a full rewrite
 {"tool":"run","command":"any shell command, e.g. ls ~/, npm test, python x.py, git status"}
 {"tool":"done","summary":"what you did / what you found"}
+
+EDITING — this is how the best agents stay reliable:
+- To change existing code, use edit_file with a "find" string copied EXACTLY from the file (enough surrounding lines that it matches ONE unique spot) and the "replace" it becomes. NEVER rewrite a whole file to change a few lines.
+- read_file the file first so your "find" is byte-exact (indentation included). If edit_file reports not-found or multiple-matches, read again and include more context.
+- Make several small edit_file calls rather than one giant write_file. Use write_file only to CREATE a new file.
 
 WORK THROUGH THE FULL SOFTWARE-ENGINEERING LIFECYCLE — be an expert at each step:
 1. UNDERSTAND: read the relevant files (read_file / list_dir / search) so you know the code, conventions, and stack before touching anything.
@@ -239,6 +246,51 @@ RULES:
 - "What's in my <folder>" / "look at my computer" → run "ls -la <path>" (use ~ for home), then report what you found in a "done".
 - Keep going autonomously until it actually works, then "done". Never ask the user questions mid-task; never say you can't.
 - Handle any language/stack at a senior level. Ship a working result, verified.`
+
+// Forgiving SEARCH/REPLACE applier (Aider/Cline-style): exact-unique → whitespace-
+// tolerant line match → on miss, return the NEAREST real text so the model can
+// retry byte-exact instead of looping on the same wrong string.
+export function applyEdit(source: string, find: string, replace: string): { ok: boolean; text?: string; reason?: string; nearest?: string } {
+  if (!find) return { ok: false, reason: 'empty find' }
+  // 1) exact, unique
+  const occ = source.split(find).length - 1
+  if (occ === 1) return { ok: true, text: source.replace(find, replace) }
+  if (occ > 1) return { ok: false, reason: `the "find" text appears ${occ} times — include more surrounding lines so it matches exactly ONE spot.` }
+  // 2) whitespace-INSENSITIVE contiguous line-block match (tolerates the model
+  // getting indentation or operator spacing slightly wrong).
+  const srcLines = source.split('\n')
+  const findLines = find.replace(/\n$/, '').split('\n')
+  const repLines = replace.replace(/\n$/, '').split('\n')
+  const nows = (s: string) => s.replace(/\s+/g, '')
+  const fNows = findLines.map(nows)
+  const hits: number[] = []
+  for (let i = 0; i + findLines.length <= srcLines.length; i++) {
+    let ok = true
+    for (let j = 0; j < findLines.length; j++) if (nows(srcLines[i + j]) !== fNows[j]) { ok = false; break }
+    if (ok) hits.push(i)
+  }
+  if (hits.length === 1) {
+    const start = hits[0]
+    const next = [...srcLines.slice(0, start), ...repLines, ...srcLines.slice(start + findLines.length)].join('\n')
+    return { ok: true, text: next }
+  }
+  if (hits.length > 1) return { ok: false, reason: `the "find" text (ignoring whitespace) matched ${hits.length} places — add more context.` }
+  // 3) nearest window by token overlap, to guide a byte-exact retry
+  const toks = (s: string) => (s.toLowerCase().match(/[\w$]+/g) || [])
+  const findTokens = new Set(toks(find))
+  let best = -1, bestScore = 0
+  const win = Math.max(1, findLines.length)
+  for (let i = 0; i + win <= srcLines.length; i++) {
+    const wt = toks(srcLines.slice(i, i + win).join(' '))
+    let score = 0
+    for (const t of wt) if (findTokens.has(t)) score++
+    if (score > bestScore) { bestScore = score; best = i }
+  }
+  const nearest = best >= 0 && bestScore > 0
+    ? srcLines.slice(best, best + win).join('\n')
+    : srcLines.slice(0, Math.min(win, srcLines.length)).join('\n')
+  return { ok: false, reason: 'the "find" text was not found', nearest }
+}
 
 function parseAction(text: string): { thought: string; action: AgentTool | null } {
   const fence = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
@@ -309,6 +361,24 @@ export async function runAgent(opts: {
       } else if (action.tool === 'search') {
         const hits = await window.nalu.search(folder || '', action.query)
         result = hits.slice(0, 40).map((h) => `${h.rel}:${h.line}: ${h.text}`).join('\n') || '(no matches)'
+      } else if (action.tool === 'edit_file') {
+        // Surgical find/replace with forgiving matching (no full-file rewrite).
+        if (!(await approve(action))) { result = 'DENIED by user.' }
+        else {
+          let cur = ''; let missing = false
+          try { cur = await window.nalu.readFile(abs(action.path)) } catch { missing = true }
+          if (missing) { result = `edit_file: ${action.path} does not exist — use write_file to create it.` }
+          else {
+            const r = applyEdit(cur, action.find, action.replace)
+            if (r.ok && r.text != null) {
+              await window.nalu.writeFile(abs(action.path), r.text)
+              const delta = r.text.split('\n').length - cur.split('\n').length
+              result = `Edited ${action.path} (${delta >= 0 ? '+' : ''}${delta} lines).`
+            } else {
+              result = `edit_file couldn't apply: ${r.reason}.` + (r.nearest ? ` The CLOSEST existing text in ${action.path} is:\n---\n${r.nearest}\n---\nResend edit_file with "find" copied byte-exact from THIS (or use write_file).` : ` read_file ${action.path} and copy the exact text.`)
+            }
+          }
+        }
       } else if (action.tool === 'write_file') {
         if (!(await approve(action))) { result = 'DENIED by user.' }
         else { await window.nalu.writeFile(abs(action.path), action.content); result = `Wrote ${action.path} (${action.content.length} chars).` }

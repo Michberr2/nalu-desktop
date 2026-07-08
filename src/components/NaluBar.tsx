@@ -43,7 +43,7 @@ export default function NaluBar() {
       await runAgent({
         task, folder: ws.folder, signal: ctrl.signal,
         onStep: (s) => { setAgentLog((p) => [...p, s]); if (s.kind === 'result' || s.kind === 'action') { ws.refresh() } scrollDown() },
-        approve: (action) => new Promise((resolve) => setPending({ action, resolve })),
+        approve: (action) => (autoRef.current ? Promise.resolve(true) : new Promise((resolve) => setPending({ action, resolve }))),
       })
     } catch (e) {
       setAgentLog((p) => [...p, { kind: 'error', text: e instanceof Error ? e.message : 'agent error' }])
@@ -153,7 +153,7 @@ export default function NaluBar() {
   }
 
   const toolIcon = (t: string) => t === 'read_file' ? FileText : t === 'list_dir' ? FolderTree : t === 'search' ? SearchIcon : t === 'run' ? Terminal : Pencil
-  const toolLabel = (a: AgentTool) => a.tool === 'read_file' ? `Read ${a.path}` : a.tool === 'list_dir' ? `List ${a.path}` : a.tool === 'search' ? `Search "${a.query}"` : a.tool === 'run' ? `Run: ${a.command}` : a.tool === 'write_file' ? `Edit ${a.path}` : 'Done'
+  const toolLabel = (a: AgentTool) => a.tool === 'read_file' ? `Read ${a.path}` : a.tool === 'list_dir' ? `List ${a.path}` : a.tool === 'search' ? `Search "${a.query}"` : a.tool === 'run' ? `Run: ${a.command}` : a.tool === 'write_file' ? `Create ${a.path}` : a.tool === 'edit_file' ? `Edit ${a.path}` : 'Done'
 
   // Short human title for an action.
   const pcLabel = (a: PcTool) => a.tool === 'browse' ? 'Open website' : a.tool === 'read_page' ? 'Read the page' : a.tool === 'page_js' ? 'Act on the page' : a.tool === 'click_el' ? 'Click element' : a.tool === 'type_text' ? 'Type text' : a.tool === 'press' ? `Press ${a.key}` : a.tool === 'open' ? `Open ${a.target}` : a.tool === 'shell' ? 'Run command' : a.tool === 'applescript' ? 'Control an app (AppleScript)' : a.tool === 'type' ? 'Type text' : a.tool === 'key' ? `Press ${a.combo}` : a.tool === 'click' ? `Click at ${a.x}, ${a.y}` : a.tool === 'see' ? 'Look at the screen' : 'Finish'
@@ -231,7 +231,8 @@ export default function NaluBar() {
         <div className="mb-2 overflow-hidden rounded-2xl border border-gold/25 bg-panel/80 backdrop-blur-2xl">
           <div className="flex items-center justify-between border-b border-glass/[0.08] px-3 py-1.5">
             <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-gold">Agent</span>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              <label className="flex cursor-pointer items-center gap-1 text-[10px] text-dim"><input type="checkbox" checked={autoApprove} onChange={(e) => setAutoApprove(e.target.checked)} className="accent-[#af8c56]" /> auto-run</label>
               {busy && <button onClick={() => abortRef.current?.abort()} className="rounded p-1 text-dim hover:text-ink"><Square size={12} /></button>}
               <button onClick={() => { setAgentLog([]); setOpen(false) }} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={13} /></button>
             </div>

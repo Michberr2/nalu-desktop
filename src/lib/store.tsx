@@ -79,7 +79,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()
-    if (dir) { setFolder(dir); setFilesOpen(true) }
+    if (dir) { setFolder(dir); setFilesOpen(true); localStorage.setItem('nalu-last-folder', dir) }
+  }, [])
+
+  // Reopen the last project on launch (like VS Code). Also lets the folder be
+  // set for a session by writing nalu-last-folder.
+  useEffect(() => {
+    const last = localStorage.getItem('nalu-last-folder')
+    if (last) { setFolder(last); setFilesOpen(true) }
   }, [])
 
   const openFile = useCallback(async (path: string, name: string) => {
