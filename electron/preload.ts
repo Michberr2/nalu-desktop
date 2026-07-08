@@ -26,6 +26,22 @@ const api = {
     commit: (cwd: string, msg: string): Promise<string> => ipcRenderer.invoke('git:commit', cwd, msg),
     stat: (cwd: string): Promise<{ added: number; removed: number }> => ipcRenderer.invoke('git:stat', cwd),
     commitPush: (cwd: string, msg: string): Promise<{ commit: string; push: string; ok: boolean }> => ipcRenderer.invoke('git:commitPush', cwd, msg),
+    clone: (repoOrUrl: string, destParent: string): Promise<{ ok: boolean; out: string; dir: string | null }> => ipcRenderer.invoke('git:clone', repoOrUrl, destParent),
+    pull: (cwd: string): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('git:pull', cwd),
+    remote: (cwd: string): Promise<string> => ipcRenderer.invoke('git:remote', cwd),
+    setRemote: (cwd: string, url: string): Promise<boolean> => ipcRenderer.invoke('git:setRemote', cwd, url),
+    initRepo: (cwd: string): Promise<boolean> => ipcRenderer.invoke('git:initRepo', cwd),
+  },
+  github: {
+    status: (): Promise<{ loggedIn: boolean; login: string; hasGh: boolean }> => ipcRenderer.invoke('github:status'),
+    repos: (): Promise<Array<{ full_name: string; clone_url: string; private: boolean }>> => ipcRenderer.invoke('github:repos'),
+    login: (): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('github:login'),
+    logout: (): Promise<boolean> => ipcRenderer.invoke('github:logout'),
+    onLoginCode: (cb: (code: string) => void): (() => void) => {
+      const h = (_e: unknown, code: string) => cb(code)
+      ipcRenderer.on('github:loginCode', h)
+      return () => ipcRenderer.removeListener('github:loginCode', h)
+    },
   },
 
   // Computer control — the AI operates the whole Mac.

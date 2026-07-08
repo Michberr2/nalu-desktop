@@ -42,7 +42,7 @@ export default function NaluBar() {
     try {
       await runAgent({
         task, folder: ws.folder, signal: ctrl.signal,
-        onStep: (s) => { setAgentLog((p) => [...p, s]); if (s.kind === 'result' || s.kind === 'action') { ws.refresh() } scrollDown() },
+        onStep: (s) => { setAgentLog((p) => [...p, s]); if (s.kind === 'action' && s.action.tool === 'run') ws.setTermOpen(true); if (s.kind === 'result' || s.kind === 'action') { ws.refresh() } scrollDown() },
         approve: (action) => (autoRef.current ? Promise.resolve(true) : new Promise((resolve) => setPending({ action, resolve }))),
       })
     } catch (e) {

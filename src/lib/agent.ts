@@ -237,11 +237,12 @@ EDITING — this is how the best agents stay reliable:
 WORK THROUGH THE FULL SOFTWARE-ENGINEERING LIFECYCLE — be an expert at each step:
 1. UNDERSTAND: read the relevant files (read_file / list_dir / search) so you know the code, conventions, and stack before touching anything.
 2. PLAN: in your one reasoning sentence, state the concrete change you're about to make and why.
-3. IMPLEMENT: write correct, idiomatic code that matches the surrounding style. Full file contents in write_file. Small, focused edits.
-4. TEST/VERIFY: after editing, run the build/tests/linter (e.g. run "npm run build" or the project's test command). If it FAILS, read the error, fix it, and re-run — loop until green.
+3. IMPLEMENT: write correct, idiomatic code that matches the surrounding style. PREFER edit_file for changes. If you use write_file you MUST include the ENTIRE file — every existing function, import, and line stays; never drop code you aren't changing (a partial file that deletes existing exports is a bug).
+4. TEST/VERIFY: after editing, ALWAYS run the project's build/tests (read_file package.json / look for the test command; e.g. "node test.js", "python3 test.py", "npm test", "cargo test", "pytest"). If it FAILS, read the error, fix it, and re-run — loop until green.
 5. REVIEW: sanity-check your own diff for bugs, edge cases, and leftovers before "done".
 
 RULES:
+- NEVER emit "done"/"complete" until you have actually RUN the test or build in THIS session and SEEN it succeed. If you haven't run it yet, run it now instead of finishing.
 - ONE short sentence of reasoning before the fence is allowed; the fence is REQUIRED every turn.
 - "What's in my <folder>" / "look at my computer" → run "ls -la <path>" (use ~ for home), then report what you found in a "done".
 - Keep going autonomously until it actually works, then "done". Never ask the user questions mid-task; never say you can't.
@@ -292,15 +293,68 @@ export function applyEdit(source: string, find: string, replace: string): { ok: 
   return { ok: false, reason: 'the "find" text was not found', nearest }
 }
 
+// Code-tuned models often answer with prose + fenced code blocks (e.g. "**math.js**
+// (updated):\n```js…```") instead of a JSON tool call. Pull those out so the agent
+// still applies the work and can then run the tests. Skips test/spec files so the
+// model can't overwrite the real test with a guessed one.
+export function extractFileWrites(reply: string): { path: string; content: string }[] {
+  const writes: { path: string; content: string }[] = []
+  const seen = new Set<string>()
+  const re = /(?:\*\*|`|FILE:\s*|#{1,4}\s*|^|\n)\s*([A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,10})\**`?\s*(?:\([^)\n]*\))?\s*:?\s*\n+```[A-Za-z0-9+#]*\n([\s\S]*?)```/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(reply))) {
+    const path = m[1].trim()
+    if (!/^[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,10}$/.test(path)) continue
+    if (/(^|[./])(test|spec)|[._-](test|spec)\./i.test(path)) continue
+    if (seen.has(path)) continue
+    seen.add(path)
+    writes.push({ path, content: m[2].replace(/\n$/, '') + '\n' })
+  }
+  return writes
+}
+
+// Models don't all speak our exact tool schema — many emit {"action":"run_command",…}
+// or {"action":"complete","message":…}. Normalize any reasonable shape to AgentTool
+// so the loop actually executes instead of silently no-op'ing. THIS is what makes
+// the agent reliable across models.
+const TOOL_MAP: Record<string, AgentTool['tool']> = {
+  read_file: 'read_file', view_file: 'read_file', read: 'read_file', cat: 'read_file', open_file: 'read_file',
+  list_dir: 'list_dir', ls: 'list_dir', list: 'list_dir', list_files: 'list_dir', listdir: 'list_dir',
+  search: 'search', grep: 'search', find_in_files: 'search', find_text: 'search',
+  edit_file: 'edit_file', str_replace: 'edit_file', replace: 'edit_file', edit: 'edit_file', apply_patch: 'edit_file',
+  write_file: 'write_file', create_file: 'write_file', write: 'write_file', create: 'write_file', save_file: 'write_file',
+  run: 'run', run_command: 'run', bash: 'run', shell: 'run', execute: 'run', exec: 'run', run_shell: 'run', run_terminal: 'run', terminal: 'run',
+  done: 'done', complete: 'done', finish: 'done', stop: 'done', end: 'done', finished: 'done',
+}
+function normalizeAction(raw: unknown): AgentTool | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const name = String(r.tool || r.action || r.name || r.tool_name || r.command_name || '').toLowerCase().replace(/[^a-z_]/g, '')
+  const tool = TOOL_MAP[name]
+  if (!tool) return null
+  const s = (v: unknown) => (typeof v === 'string' ? v : undefined)
+  return {
+    tool,
+    path: s(r.path) || s(r.file) || s(r.filename) || s(r.filepath) || s(r.file_path) || '',
+    query: s(r.query) || s(r.q) || s(r.pattern) || '',
+    find: s(r.find) ?? s(r.search) ?? s(r.old) ?? s(r.old_str) ?? s(r.old_string) ?? s(r.target) ?? '',
+    replace: s(r.replace) ?? s(r.new) ?? s(r.new_str) ?? s(r.new_string) ?? s(r.replacement) ?? '',
+    content: s(r.content) ?? s(r.text) ?? s(r.code) ?? s(r.data) ?? s(r.file_content) ?? '',
+    command: s(r.command) || s(r.cmd) || s(r.shell) || s(r.script) || s(r.run) || '',
+    summary: s(r.summary) || s(r.message) || s(r.msg) || s(r.reason) || '',
+  } as AgentTool
+}
 function parseAction(text: string): { thought: string; action: AgentTool | null } {
   const fence = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
   let raw = fence ? fence[1] : ''
-  if (!raw) { const m = text.match(/\{[\s\S]*?"tool"[\s\S]*?\}/); raw = m ? m[0] : '' }
+  if (!raw) { const m = text.match(/\{[\s\S]*?"(?:tool|action|name)"[\s\S]*?\}/); raw = m ? m[0] : '' }
   const thought = (raw ? text.slice(0, text.indexOf(raw)).replace(/```json|```/g, '') : text).trim().slice(0, 400)
   if (!raw) return { thought, action: null }
-  try { return { thought, action: JSON.parse(raw) as AgentTool } } catch {
-    try { return { thought, action: JSON.parse(raw.replace(/,\s*}/g, '}').replace(/[""]/g, '"')) as AgentTool } } catch { return { thought, action: null } }
+  let obj: unknown = null
+  try { obj = JSON.parse(raw) } catch {
+    try { obj = JSON.parse(raw.replace(/,\s*}/g, '}').replace(/[""]/g, '"')) } catch { return { thought, action: null } }
   }
+  return { thought, action: normalizeAction(obj) }
 }
 
 export async function runAgent(opts: {
@@ -327,17 +381,37 @@ export async function runAgent(opts: {
     let reply = ''
     let action: AgentTool | null = null
     let thought = ''
+    let writes: { path: string; content: string }[] = []
     for (let attempt = 0; attempt < 3; attempt++) {
       reply = ''
       await streamChat(history, { specialist: 'code', signal, onDelta: (t) => (reply += t) })
       const parsed = parseAction(reply); action = parsed.action; thought = parsed.thought
       if (action) break
+      // If it answered in prose+code, take those writes NOW — don't nudge the
+      // code away with another turn (which is what made this fail before).
+      writes = extractFileWrites(reply)
+      if (writes.length) break
       history.push({ role: 'assistant', content: reply }, { role: 'user', content: 'That was not a valid action, and you must NOT refuse — you have full tool access to this machine. Reply with ONLY one JSON action in a ```json fence. For a files/computer question use {"tool":"run","command":"ls -la ~/"}. ACT now.' })
     }
     if (thought) onStep({ kind: 'thought', text: thought })
     history.push({ role: 'assistant', content: reply })
 
     if (!action) {
+      // The model answered in prose + fenced code blocks instead of a JSON tool
+      // call (common with code-tuned models). Apply the files it wrote, then push
+      // it to verify — this alone is what lets such models actually ship changes.
+      if (writes.length) {
+        const applied: string[] = []
+        for (const w of writes) {
+          if (await approve({ tool: 'write_file', path: w.path, content: w.content })) {
+            await window.nalu.writeFile(abs(w.path), w.content); applied.push(w.path)
+          }
+        }
+        onStep({ kind: 'action', action: { tool: 'write_file', path: applied.join(', '), content: '' } })
+        onStep({ kind: 'result', text: `Applied ${applied.length} file(s): ${applied.join(', ') || '(none)'}` })
+        history.push({ role: 'user', content: `RESULT: applied ${applied.length} file(s): ${applied.join(', ')}. Now RUN the test or build to verify it works; if it fails, read the error and fix it. Reply with ONE json tool action.` })
+        continue
+      }
       // Fallback: the model kept refusing. For a filesystem/exploration ask, just
       // run it. Otherwise report honestly (but this is rare now).
       const t = task.toLowerCase()

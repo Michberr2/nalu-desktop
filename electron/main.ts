@@ -181,10 +181,82 @@ ipcMain.handle('git:stat', async (_e, cwd: string) => {
   }
   return { added, removed }
 })
+// ---- GitHub via the gh CLI (real OAuth login, no manual tokens) ------------
+function gh(args: string[], cwd?: string): Promise<{ ok: boolean; out: string }> {
+  return new Promise((resolve) => {
+    // Prepend common install dirs so gh is found even when launched from Finder
+    // (GUI apps don't inherit the shell PATH).
+    const env = { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}` }
+    const p = spawn('gh', args, { cwd, env })
+    let out = ''
+    p.stdout.on('data', (d) => (out += d)); p.stderr.on('data', (d) => (out += d))
+    p.on('close', (code) => resolve({ ok: code === 0, out }))
+    p.on('error', () => resolve({ ok: false, out: '__no_gh__' }))
+  })
+}
+let ghGitReady = false
+async function ensureGhGit() { if (!ghGitReady) { await gh(['auth', 'setup-git']); ghGitReady = true } }
+ipcMain.handle('github:status', async () => {
+  const r = await gh(['auth', 'status'])
+  if (r.out === '__no_gh__') return { loggedIn: false, login: '', hasGh: false }
+  const m = r.out.match(/Logged in to github\.com account (\S+)/) || r.out.match(/account (\S+)/)
+  return { loggedIn: /Logged in/.test(r.out), login: m ? m[1] : '', hasGh: true }
+})
+ipcMain.handle('github:repos', async () => {
+  const r = await gh(['api', 'user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member', '--jq', '.[] | {full_name: .full_name, clone_url: .clone_url, private: .private}'])
+  if (!r.ok) return []
+  return r.out.trim().split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+})
+// Browser OAuth login (device flow) for ANY user — shows a one-time code, opens
+// github.com/login/device, and completes when they authorize. No manual token.
+ipcMain.handle('github:login', async (e) => {
+  return await new Promise<{ ok: boolean; out: string }>((resolve) => {
+    const env = { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}` }
+    const p = spawn('gh', ['auth', 'login', '--web', '--git-protocol', 'https', '--hostname', 'github.com'], { env })
+    let out = '', codeShown = false, enterSent = false
+    const onData = (d: Buffer) => {
+      out += d.toString()
+      const m = out.match(/([A-Z0-9]{4}-[A-Z0-9]{4})/)
+      if (m && !codeShown) { codeShown = true; e.sender.send('github:loginCode', m[1]); shell.openExternal('https://github.com/login/device') }
+      if (/Press Enter/i.test(out) && !enterSent) { enterSent = true; try { p.stdin.write('\n') } catch { /* ignore */ } }
+      if (/already logged in/i.test(out)) { try { p.stdin.write('y\n') } catch { /* ignore */ } }
+    }
+    p.stdout.on('data', onData); p.stderr.on('data', onData)
+    p.on('close', (code) => { void gh(['auth', 'setup-git']); resolve({ ok: code === 0, out: out.replace(/[A-Z0-9]{4}-[A-Z0-9]{4}/g, '') }) })
+    p.on('error', () => resolve({ ok: false, out: '__no_gh__' }))
+  })
+})
+ipcMain.handle('github:logout', async () => (await gh(['auth', 'logout', '--hostname', 'github.com'])).ok)
+ipcMain.handle('git:clone', async (_e, repoOrUrl: string, destParent: string) => {
+  await ensureGhGit()
+  const repo = repoOrUrl.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/^\/+/, '')
+  const name = (repo.match(/([^/]+)$/) || [])[1] || 'repo'
+  const dest = path.join(destParent, name)
+  const r = await gh(['repo', 'clone', repo, dest], destParent)
+  return { ok: r.ok, out: r.out === '__no_gh__' ? 'GitHub CLI (gh) not found.' : r.out, dir: r.ok ? dest : null }
+})
+ipcMain.handle('git:remote', async (_e, cwd: string) => {
+  const r = await git(cwd, ['remote', 'get-url', 'origin'])
+  return r.ok ? r.out.trim() : ''
+})
+ipcMain.handle('git:setRemote', async (_e, cwd: string, url: string) => {
+  await git(cwd, ['remote', 'remove', 'origin'])
+  return (await git(cwd, ['remote', 'add', 'origin', url])).ok
+})
+ipcMain.handle('git:initRepo', async (_e, cwd: string) => (await git(cwd, ['init'])).ok)
+ipcMain.handle('git:pull', async (_e, cwd: string) => {
+  await ensureGhGit()
+  const r = await git(cwd, ['pull'])
+  return { ok: r.ok, out: r.out }
+})
 ipcMain.handle('git:commitPush', async (_e, cwd: string, msg: string) => {
+  await ensureGhGit()
   await git(cwd, ['add', '-A'])
   const c = await git(cwd, ['commit', '-m', msg])
-  const p = await git(cwd, ['push'])
+  const hasRemote = (await git(cwd, ['remote'])).out.trim()
+  if (!hasRemote) return { commit: c.out, push: 'No remote — connect/clone a GitHub repo to push.', ok: false }
+  const branch = (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).out.trim() || 'main'
+  const p = await git(cwd, ['push', '-u', 'origin', `HEAD:${branch}`])
   return { commit: c.out, push: p.out, ok: p.ok }
 })
 

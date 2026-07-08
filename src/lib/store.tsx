@@ -6,6 +6,7 @@ export type Tab = { path: string; name: string; content: string; dirty: boolean 
 type Ctx = {
   folder: string | null
   openFolder: () => Promise<void>
+  openFolderAt: (dir: string) => void
   tabs: Tab[]
   activePath: string | null
   active: Tab | null
@@ -31,6 +32,8 @@ type Ctx = {
   setDrawerMode: (m: 'files' | 'search' | 'git') => void
   filesWidth: number
   setFilesWidth: (w: number) => void
+  termHeight: number
+  setTermHeight: (h: number) => void
   reveal: { path: string; line: number } | null
   openAt: (path: string, name: string, line: number) => Promise<void>
   // Nalu (website-like chat) vs IDE — interchangeable.
@@ -72,6 +75,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [drawerMode, setDrawerMode] = useState<'files' | 'search' | 'git'>('files')
   const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null)
   const [filesWidth, setFilesWidth] = useState(() => Number(localStorage.getItem('nalu-files-w')) || 240)
+  const [termHeight, setTermHeightState] = useState(() => Number(localStorage.getItem('nalu-term-h')) || 224)
   // Default to the website-like Nalu chat if signed in, else the IDE.
   const [user, setUser] = useState<NaluUser | null>(() => currentUser())
   const [appMode, setAppModeState] = useState<'nalu' | 'ide'>(() => (localStorage.getItem('nalu-app-mode') as 'nalu' | 'ide') || (currentUser() ? 'nalu' : 'ide'))
@@ -80,6 +84,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()
     if (dir) { setFolder(dir); setFilesOpen(true); localStorage.setItem('nalu-last-folder', dir) }
+  }, [])
+
+  // Open a specific path (e.g. a freshly-cloned GitHub repo) without the dialog.
+  const openFolderAt = useCallback((dir: string) => {
+    setFolder(dir); setFilesOpen(true); localStorage.setItem('nalu-last-folder', dir)
   }, [])
 
   // Reopen the last project on launch (like VS Code). Also lets the folder be
@@ -135,7 +144,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [tabs, activePath, saveActive])
 
   const value: Ctx = {
-    folder, openFolder,
+    folder, openFolder, openFolderAt,
     tabs, activePath, active,
     openFile, setActive: setActivePath, closeTab, editActive, saveActive,
     filesOpen, setFilesOpen, termOpen, setTermOpen, paletteOpen, setPaletteOpen,
@@ -143,6 +152,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     refreshKey, refresh,
     drawerMode, setDrawerMode, reveal, openAt,
     filesWidth, setFilesWidth: (w: number) => { const c = Math.max(180, Math.min(560, w)); setFilesWidth(c); localStorage.setItem('nalu-files-w', String(c)) },
+    termHeight, setTermHeight: (h: number) => { const c = Math.max(120, Math.min(700, h)); setTermHeightState(c); localStorage.setItem('nalu-term-h', String(c)) },
     appMode, setAppMode, user, setUser,
   }
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>
