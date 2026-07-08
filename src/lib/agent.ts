@@ -175,7 +175,7 @@ export async function runComputer(opts: {
     let result = ''
     try {
       if (action.tool === 'see') { result = await describeScreen() }
-      else if (action.tool === 'browse') { const ok = await window.nalu.pc.webOpen(action.url); if (ok) { const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }) } result = ok ? `opened ${action.url} in the Nalu Browser. Use read_page to see it.` : `could not open ${action.url}` }
+      else if (action.tool === 'browse') { const r = await window.nalu.pc.webOpen(action.url); if (r.ok) { const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }) } result = r.ok ? `${r.out} Use read_page to see it.` : (r.out || `could not open ${action.url}`) }
       else if (action.tool === 'read_page') { result = await readPage(); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }) }
       else if (action.tool === 'page_js') { const r = await window.nalu.pc.webJs(action.code, true); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }); result = r.ok ? `ran. result: ${r.out.slice(0, 3000)}` : `page_js error: ${r.out.slice(0, 500)}` }
       else if (action.tool === 'click_el') { const r = await window.nalu.pc.webClickSel(action.selector); const shot = await window.nalu.pc.webShot(); if (shot) onStep({ kind: 'screenshot', url: shot }); result = r.out }

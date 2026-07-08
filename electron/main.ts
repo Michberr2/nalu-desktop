@@ -388,6 +388,7 @@ ipcMain.handle('pc:open', async (_e, target: string) => {
 // visible so the user watches (and can solve a login/captcha in it). This is the
 // reliable path for real web tasks (reservations, posting, email). ------------
 let webWin: BrowserWindow | null = null
+let lastBrowserError = ''
 function naluBrowser(): BrowserWindow {
   if (webWin && !webWin.isDestroyed()) return webWin
   webWin = new BrowserWindow({
@@ -398,21 +399,44 @@ function naluBrowser(): BrowserWindow {
       contextIsolation: false,
     },
   })
-  webWin.webContents.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36')
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+  webWin.webContents.setUserAgent(UA)
+  webWin.webContents.session.setUserAgent(UA, 'en-US')
+  webWin.webContents.session.webRequest.onBeforeSendHeaders((details, cb) => {
+    details.requestHeaders['Accept-Language'] = 'en-US,en;q=0.9'
+    cb({ requestHeaders: details.requestHeaders })
+  })
+  webWin.webContents.on('render-process-gone', (_e, d) => { lastBrowserError = `the page crashed the browser (${d.reason}) — almost always aggressive bot protection` })
   webWin.on('closed', () => { webWin = null })
   return webWin
 }
 ipcMain.handle('pc:webOpen', async (_e, url: string) => {
+  lastBrowserError = ''
   const w = naluBrowser()
+  const full = /^https?:\/\//.test(url) ? url : `https://${url}`
   try {
-    await w.loadURL(/^https?:\/\//.test(url) ? url : `https://${url}`)
-    await new Promise((r) => setTimeout(r, 1200)) // let client JS settle
+    await w.loadURL(full)
+  } catch (e) {
+    // Sites behind Akamai/Cloudflare (OpenTable, LinkedIn) return a 403 challenge:
+    // loadURL REJECTS on the HTTP code, but the page content is actually there.
+    // Don't report a false failure ("404") — wait for the challenge/page to settle
+    // and report what really loaded so the agent can read or solve it.
+    await new Promise((r) => setTimeout(r, 2000))
+    const cur = w.webContents.getURL()
+    if (!cur || cur === 'about:blank') { return { ok: false, out: `Could not reach ${full}: ${e instanceof Error ? e.message : 'load error'}` }
+    }
     w.focus()
-    return true
-  } catch { return false }
+    return { ok: true, out: `Opened ${cur} (the site guards against automation, so it may show a check — the page is loaded; read it or interact via the browser).` }
+  }
+  await new Promise((r) => setTimeout(r, 1800)) // let client JS settle
+  if (w.isDestroyed() || lastBrowserError) {
+    return { ok: false, out: lastBrowserError || `${full} closed the browser — it actively blocks automated browsers (Akamai/Cloudflare). Try the site's public API, a Google-cached copy, or ask the user to open it.` }
+  }
+  w.focus()
+  return { ok: true, out: `Opened ${w.webContents.getURL() || full}` }
 })
 ipcMain.handle('pc:webJs', async (_e, code: string, wantResult: boolean) => {
-  if (!webWin || webWin.isDestroyed()) return { ok: false, out: 'no Nalu Browser open — use webOpen first' }
+  if (!webWin || webWin.isDestroyed()) return { ok: false, out: lastBrowserError || 'no Nalu Browser open — use webOpen first' }
   try {
     const out = await webWin.webContents.executeJavaScript(code, true)
     return { ok: true, out: wantResult ? String(out ?? '').slice(0, 8000) : 'done' }

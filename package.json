@@ -1,6 +1,6 @@
 {
   "name": "nalu-desktop",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Nalu Desktop — a clean, signed IDE that brings the whole Nalu app to your computer.",
   "author": "Nalu (n4lu.ai)",
   "main": "dist-electron/main.js",

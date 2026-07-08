@@ -58,7 +58,7 @@ const api = {
     browserRun: (code: string, wantResult: boolean): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:browserRun', code, wantResult),
     browserOpen: (url: string): Promise<boolean> => ipcRenderer.invoke('pc:browserOpen', url),
     // Nalu Browser — the in-app Chromium the agent fully controls (no toggle).
-    webOpen: (url: string): Promise<boolean> => ipcRenderer.invoke('pc:webOpen', url),
+    webOpen: (url: string): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:webOpen', url),
     webJs: (code: string, wantResult: boolean): Promise<{ ok: boolean; out: string }> => ipcRenderer.invoke('pc:webJs', code, wantResult),
     webShot: (): Promise<string> => ipcRenderer.invoke('pc:webShot'),
     // trusted (isTrusted=true) input into the Nalu Browser — passes most bot-walls
