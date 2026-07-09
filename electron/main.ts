@@ -632,6 +632,9 @@ ipcMain.handle('term:kill', (_e, id: string) => {
 // ---- App lifecycle ---------------------------------------------------------
 
 app.whenReady().then(createWindow)
+// Make git authenticated up front so the AI agent can `git push` via its run tool
+// (using the user's gh login) even as its very first action.
+app.whenReady().then(() => { void ensureGhGit() })
 
 app.on('window-all-closed', () => {
   Object.values(shells).forEach((c) => c.kill())

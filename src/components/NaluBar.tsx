@@ -6,7 +6,7 @@ import { runAgent, runComputer, type AgentStep, type AgentTool, type PcStep, typ
 import wolfUrl from '../lib/wolf'
 
 type Msg = { role: 'user' | 'assistant'; text: string; specialist?: string; proposed?: string }
-type TermLine = { req: string; cmd: string; out: string; running?: boolean }
+type TermLine = { req?: string; cmd?: string; out?: string; running?: boolean; done?: string }
 type Mode = 'chat' | 'agent' | 'computer' | 'edit' | 'terminal'
 
 function extractCode(text: string): string | null {
@@ -100,33 +100,65 @@ export default function NaluBar() {
     finally { setBusy(false); abortRef.current = null; setPcPending(null) }
   }
 
-  // AI-driven terminal: describe what you want, Nalu picks + runs the command.
+  // AI TERMINAL AGENT: you prompt it, and Nalu does whatever it takes on your
+  // computer — running commands step by step, reading each result to decide the
+  // next, with a PERSISTENT working directory (cd sticks across steps).
   const runTermCmd = async (request: string) => {
     setOpen(true); setBusy(true)
-    setTermLog((p) => [...p, { req: request, cmd: '', out: '', running: true }])
-    scrollDown()
+    const ctrl = new AbortController(); abortRef.current = ctrl
+    let cwd = ws.folder || ''
+    const MARK = '__NALUCWD__'
+    // run one command in the tracked cwd; capture the resulting pwd so cd persists
+    const runOne = async (cmd: string): Promise<{ out: string; code: number }> => {
+      const wrapped = `cd ${JSON.stringify(cwd || '~')} 2>/dev/null; { ${cmd}\n; }; __ec=$?; printf "\\n${MARK}%s\\n" "$(pwd)"; exit $__ec`
+      const r = await window.nalu.exec(cwd || '', wrapped)
+      let out = r.output || ''
+      const mi = out.lastIndexOf(MARK)
+      if (mi >= 0) { const np = out.slice(mi + MARK.length).trim().split('\n')[0]; if (np.startsWith('/')) cwd = np; out = out.slice(0, mi).replace(/\n+$/, '') }
+      return { out: out || `(exit ${r.code})`, code: r.code }
+    }
+    // A bare command runs verbatim; a natural-language goal goes agentic.
+    const raw = request.trim()
+    const looksRaw = /^(cd |ls|pwd|git |npm |npx |node |cat |grep |echo |mkdir|rm |cp |mv |brew |python|pip|curl |wget |find |which |touch |code |open |sudo |\.\/|bash |sh |zsh |chmod|chown|export |kill |ps |df |du |tar |zip |unzip |ssh |scp |make |cargo |go |docker )/.test(raw)
     try {
-      // If it already looks like a raw command, run it verbatim; otherwise ask
-      // Nalu to translate the request into the exact shell command.
-      const looksRaw = /^(cd |ls|pwd|git |npm |node |cat |grep |echo |mkdir|rm |cp |mv |brew |python|pip|curl |find |which |touch |code |open |sudo )/.test(request.trim())
-      let cmd = request.trim()
-      if (!looksRaw) {
-        let out = ''
-        await streamChat(
-          [
-            { role: 'system', content: 'You are a macOS shell (zsh) expert. The user tells you what they want to do in the terminal. Reply with ONLY the single exact shell command that does it — no explanation, no markdown, no code fences, no leading $. Chain steps with && if needed. Prefer safe, non-destructive commands.' },
-            { role: 'user', content: request },
-          ],
-          { specialist: 'code', onDelta: (t) => (out += t) },
-        )
-        cmd = out.replace(/```[a-z]*|```/gi, '').replace(/^\$\s*/, '').trim().split('\n')[0].trim()
+      if (looksRaw) {
+        setTermLog((p) => [...p, { req: request, cmd: raw, out: '', running: true }]); scrollDown()
+        const r = await runOne(raw)
+        setTermLog((p) => { const c = [...p]; c[c.length - 1] = { req: request, cmd: raw, out: r.out, running: false }; return c })
+        return
       }
-      setTermLog((p) => { const c = [...p]; c[c.length - 1] = { req: request, cmd, out: '', running: true }; return c }); scrollDown()
-      const r = await window.nalu.exec(ws.folder || '', cmd)
-      setTermLog((p) => { const c = [...p]; c[c.length - 1] = { req: request, cmd, out: r.output || `(exit ${r.code})`, running: false }; return c })
+      setTermLog((p) => [...p, { req: request, cmd: '', out: '', running: false }]); scrollDown()
+      const history: WireMessage[] = [
+        { role: 'system', content: `You are Nalu operating the user's Mac terminal (zsh). Accomplish the user's goal by running shell commands — you can do ANYTHING on this computer: navigate anywhere (cd persists between your commands), read/write/move files, install tools (brew/npm/pip), run programs, inspect the system. Work step by step: reply with ONLY the single next shell command to run — no explanation, no markdown, no $, no comments. Read each command's output to decide the next command. When the goal is fully achieved, reply EXACTLY: DONE: <one-line summary>. Never refuse; if a command fails, try another way.` },
+        { role: 'user', content: request },
+      ]
+      for (let step = 0; step < 24 && !ctrl.signal.aborted; step++) {
+        let reply = ''
+        await streamChat(history, { specialist: 'code', signal: ctrl.signal, onDelta: (t) => (reply += t) })
+        history.push({ role: 'assistant', content: reply })
+        const dm = reply.match(/DONE:\s*([\s\S]*)/i)
+        // The model often wraps its command(s) in a ```fence and adds prose — take
+        // the FENCE (run every command in it); otherwise keep only command-looking
+        // lines (never the "I'll create…" prose, which we used to run by mistake).
+        const fence = reply.match(/```(?:[a-z]+)?\s*\n?([\s\S]*?)```/i)
+        let cmd = ''
+        if (fence && fence[1].trim()) {
+          cmd = fence[1].split('\n').map((l) => l.replace(/^\s*\$\s*/, '')).filter((l) => l.trim() && !l.trim().startsWith('#')).join('\n').trim()
+        } else if (!dm) {
+          cmd = reply.split('\n').map((l) => l.replace(/^\s*\$\s*/, '').trim())
+            .filter((l) => l && !l.startsWith('#') && !/[.:]\s*$/.test(l) && !/\b(i'?ll|here'?s|let me|to accomplish|complete code|the following|will (create|make|do|show))\b/i.test(l))
+            .join('\n').trim()
+        }
+        if (!cmd) { if (dm) setTermLog((p) => [...p, { req: '', cmd: '', out: '', done: dm[1].trim().slice(0, 300) }]); break }
+        setTermLog((p) => [...p, { req: '', cmd, out: '', running: true }]); scrollDown()
+        const r = await runOne(cmd)
+        setTermLog((p) => { const c = [...p]; c[c.length - 1] = { req: '', cmd, out: r.out, running: false }; return c }); scrollDown()
+        history.push({ role: 'user', content: `exit ${r.code}\n${r.out.slice(0, 4000)}` })
+        if (dm) { setTermLog((p) => [...p, { req: '', cmd: '', out: '', done: dm[1].trim().slice(0, 300) }]); break }
+      }
     } catch (e) {
-      setTermLog((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], out: String(e), running: false }; return c })
-    } finally { setBusy(false); scrollDown() }
+      setTermLog((p) => { const c = [...p]; if (c.length) c[c.length - 1] = { ...c[c.length - 1], out: String(e), running: false }; return c })
+    } finally { setBusy(false); abortRef.current = null; scrollDown() }
   }
 
   const send = async () => {
@@ -249,9 +281,11 @@ export default function NaluBar() {
           <div ref={scrollRef} className="max-h-[40vh] space-y-2.5 overflow-y-auto p-3 text-[12px]">
             {termLog.map((l, i) => (
               <div key={i}>
-                <div className="text-dim">you ❯ <span className="text-ink">{l.req}</span></div>
-                {l.cmd ? <div className="mt-0.5 text-gold">nalu ❯ <span className="text-ink">{l.cmd}</span></div> : <div className="mt-0.5 text-dim/70">nalu ❯ deciding the command…</div>}
+                {l.req && <div className="text-dim">you ❯ <span className="text-ink">{l.req}</span></div>}
+                {l.cmd && <div className="mt-0.5 text-gold">nalu ❯ <span className="text-ink">{l.cmd}</span></div>}
+                {!l.cmd && !l.done && l.running && <div className="mt-0.5 text-dim/70">nalu ❯ thinking…</div>}
                 {l.out && <pre className="mt-0.5 whitespace-pre-wrap text-[11px] text-dim">{l.out}</pre>}
+                {l.done && <div className="flex items-center gap-1.5 font-medium text-gold"><CheckCircle2 size={13} /> {l.done}</div>}
               </div>
             ))}
           </div>
