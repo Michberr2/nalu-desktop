@@ -207,6 +207,8 @@ export type AgentTool =
   | { tool: 'edit_file'; path: string; find: string; replace: string }
   | { tool: 'write_file'; path: string; content: string }
   | { tool: 'run'; command: string }
+  | { tool: 'browse'; url: string }
+  | { tool: 'read_page' }
   | { tool: 'done'; summary: string }
 
 export type AgentStep =
@@ -227,6 +229,8 @@ To act, reply with EXACTLY one JSON object inside a \`\`\`json fence and NOTHING
 {"tool":"edit_file","path":"...","find":"EXACT existing text to replace","replace":"new text"}   // PREFERRED for editing — surgical, no rewrites
 {"tool":"write_file","path":"...","content":"the FULL file contents"}   // only for NEW files or a full rewrite
 {"tool":"run","command":"any shell command, e.g. ls ~/, npm test, python x.py, git status"}
+{"tool":"browse","url":"http://localhost:3000"}   // open a URL / your running dev server in the Nalu Browser
+{"tool":"read_page"}                                // SEE the live page (title, text, console errors) to check your UI
 {"tool":"done","summary":"what you did / what you found"}
 
 EDITING — this is how the best agents stay reliable:
@@ -324,6 +328,8 @@ const TOOL_MAP: Record<string, AgentTool['tool']> = {
   edit_file: 'edit_file', str_replace: 'edit_file', replace: 'edit_file', edit: 'edit_file', apply_patch: 'edit_file',
   write_file: 'write_file', create_file: 'write_file', write: 'write_file', create: 'write_file', save_file: 'write_file',
   run: 'run', run_command: 'run', bash: 'run', shell: 'run', execute: 'run', exec: 'run', run_shell: 'run', run_terminal: 'run', terminal: 'run',
+  browse: 'browse', open_url: 'browse', goto: 'browse', open_browser: 'browse', navigate: 'browse',
+  read_page: 'read_page', view_page: 'read_page', see_page: 'read_page', screenshot: 'read_page', inspect_page: 'read_page',
   done: 'done', complete: 'done', finish: 'done', stop: 'done', end: 'done', finished: 'done',
 }
 function normalizeAction(raw: unknown): AgentTool | null {
@@ -335,6 +341,7 @@ function normalizeAction(raw: unknown): AgentTool | null {
   const s = (v: unknown) => (typeof v === 'string' ? v : undefined)
   return {
     tool,
+    url: s(r.url) || s(r.href) || (tool === 'browse' ? (s(r.path) || s(r.command) || '') : ''),
     path: s(r.path) || s(r.file) || s(r.filename) || s(r.filepath) || s(r.file_path) || '',
     query: s(r.query) || s(r.q) || s(r.pattern) || '',
     find: s(r.find) ?? s(r.search) ?? s(r.old) ?? s(r.old_str) ?? s(r.old_string) ?? s(r.target) ?? '',
@@ -471,6 +478,14 @@ export async function runAgent(opts: {
       } else if (action.tool === 'run') {
         if (!(await approve(action))) { result = 'DENIED by user.' }
         else { const r = await window.nalu.exec(folder || '', action.command); result = `exit ${r.code}\n${r.output.slice(0, 8000)}` }
+      } else if (action.tool === 'browse') {
+        // Open a URL (e.g. your running dev server) in the Nalu Browser so the
+        // agent can SEE the live app and fix the UI against it.
+        const r = await window.nalu.pc.webOpen(action.url)
+        result = r.ok ? `${r.out} Use read_page to see what's on it.` : (r.out || `could not open ${action.url}`)
+      } else if (action.tool === 'read_page') {
+        const r = await window.nalu.pc.webJs('JSON.stringify({title:document.title, url:location.href, text:document.body.innerText.slice(0,5000)})', true)
+        result = r.ok ? String(r.out).slice(0, 6000) : (r.out || 'no page open — browse to a URL first')
       }
     } catch (e) {
       result = `ERROR: ${e instanceof Error ? e.message : 'failed'}`

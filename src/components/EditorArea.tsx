@@ -1,3 +1,4 @@
+import '../lib/monaco' // load Monaco locally (bundled), not from a CDN
 import Editor, { type Monaco } from '@monaco-editor/react'
 import { X } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
