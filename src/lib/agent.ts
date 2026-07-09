@@ -374,6 +374,11 @@ export async function runAgent(opts: {
     { role: 'user', content: task },
   ]
 
+  // Progress tracking so the agent STOPS when the work is done instead of
+  // re-reading/re-running forever (the #1 "it never finishes" complaint).
+  let edits = 0, sinceEdit = 0, verified = false
+  const actionCounts = new Map<string, number>()
+
   for (let step = 0; step < maxSteps; step++) {
     if (signal?.aborted) return
     // ask the model for the next action; retry if it replies with prose (e.g. a
@@ -471,7 +476,26 @@ export async function runAgent(opts: {
       result = `ERROR: ${e instanceof Error ? e.message : 'failed'}`
     }
     onStep({ kind: 'result', text: result })
-    history.push({ role: 'user', content: `TOOL RESULT:\n${result}` })
+
+    // Completion detection — stop the pointless verify-forever loop.
+    const a = action as { path?: string; command?: string; query?: string }
+    const sig = `${action.tool}:${a.path || a.command || a.query || ''}`
+    const rep = (actionCounts.get(sig) || 0) + 1
+    actionCounts.set(sig, rep)
+    if (action.tool === 'edit_file' && /^Edited/.test(result)) { edits++; sinceEdit = 0; verified = false }
+    else if (action.tool === 'write_file' && /^Wrote/.test(result)) { edits++; sinceEdit = 0; verified = false }
+    else { sinceEdit++; if (action.tool === 'run' && /^exit 0/.test(result)) verified = true }
+    // The agent has made a change, a check has passed, and it's now either
+    // repeating an action or doing extra non-edit steps — it's DONE.
+    const repeating = rep >= 2 && (action.tool === 'read_file' || action.tool === 'run' || action.tool === 'search' || action.tool === 'list_dir')
+    if (edits > 0 && ((verified && sinceEdit >= 2) || repeating)) {
+      onStep({ kind: 'done', text: 'Done — the change is applied and verified.' })
+      return
+    }
+
+    let msg = `TOOL RESULT:\n${result}`
+    if (edits > 0 && verified) msg += `\n\nThe change is applied and the check PASSED. If the task is complete, reply {"tool":"done","summary":"what you changed"} NOW — do not keep re-reading or re-verifying.`
+    history.push({ role: 'user', content: msg })
   }
   onStep({ kind: 'error', text: `Stopped after ${maxSteps} steps.` })
 }
