@@ -266,7 +266,7 @@ calls. Fix that first.
 | Domain QA distillation | `training/distill_gen.mjs` (single-turn Q→A; 2 domains × 10 rows so far) | scale to 300–2000 rows/domain |
 | SFT trainer | `training/train_nalu_sft.py` (Tinker + LoRA, masks to answer tokens) | point at agentic data; pick per-lane base |
 | RL polish | `training/train_catalina_dro.py` (DRO) | reward fn for tool-call validity + task success |
-| **Agentic trajectories** | **— (nothing yet)** | **a trajectory generator that runs a teacher through the CLI tool loop and logs successful multi-turn tool-use** |
+| **Agentic trajectories** | **`training/distill_agent_trajectories.mjs`** — teacher agents do REAL tasks in real mini-repos across 24 archetypes (14 agent-craft + 10 fleet domains: finance, legal, medical, realestate, crypto, marketing, data, hr, construction, general), validated + canonicalized; seed batches in `data/nalu-agent.jsonl` | scale by re-running (20-40 runs ≈ 400-1000 rows), then train |
 | Serving | env-var wiring in `api/chat.ts` (`NALU_<KIND>_MODEL`) | a self-hosted OpenAI-compatible endpoint (drawing A) |
 | Eval | `scripts/router-eval*.mjs` | an agentic task battery scored through the real CLI |
 
@@ -278,10 +278,12 @@ generator (step 1–2). That's the concrete next build.
 1. **You:** resolve the fallback provider (P0) — top up HF **or** set
    `NALU_FALLBACK_*` to a working endpoint, so users aren't one Tinker blip from
    a dead CLI.
-2. **Build the agentic-trajectory generator** — a Workflow that drives a frontier
-   teacher through the exact Nalu tool schema on ~500 seeded coding tasks and
-   logs successful trajectories to `training/data/nalu-agent.jsonl`.
-3. **SFT** DeepSeek on `nalu-agent.jsonl` with `train_nalu_sft.py` → `nalu-code-agent-v1`.
+2. ~~Build the agentic-trajectory generator~~ — **DONE**:
+   `training/distill_agent_trajectories.mjs` (24 archetypes across the whole
+   fleet — the teacher teaches ALL the models; see `training/README_AGENT.md`).
+   Scale the dataset by re-running it (each run ≈ 24 fresh trajectories).
+3. **SFT** on `nalu-agent.jsonl` with `train_nalu_sft.py` (multi-turn `turns`
+   rows supported) → `nalu-agent-v1`, then per-domain variants.
 4. **Self-host** it (drawing A) and wire `NALU_CODE_MODEL`.
 5. **Prove it** on a held-out battery through the real CLI; iterate.
 6. In parallel, **session resume** (P1 #1) and **`/init`** (P1 #2) for UX parity.
