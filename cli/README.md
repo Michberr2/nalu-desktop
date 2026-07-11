@@ -24,9 +24,28 @@ cat error.log | nalu -p "what caused this?"
 nalu update             # self-update to the latest version
 ```
 
-In a session: `/plan <task>` `/search <query>` `/help` `/model` `/status`
-`/clear` `/exit` — end a line with `\` for multi-line input, Ctrl+C interrupts
-a running response.
+In a session: `/agent` `/goal` `/swarm` `/team` `/plan <task>` `/search <query>`
+`/help` `/model` `/status` `/clear` `/exit` — end a line with `\` for multi-line
+input, Ctrl+C interrupts a running response.
+
+## Orchestration
+
+- `/agent <name> [task]` — force a specific Nalu specialist (finance, legal,
+  medical, code, …). With a task it's one-shot; without, it's sticky until
+  `/agent off`. `/agent` alone lists the fleet.
+- `/goal <goal>` — relentless mode: Nalu works in rounds and an independent
+  skeptical verifier checks real evidence after each one; it does not stop
+  until the goal is achieved (or you Ctrl+C).
+- `/swarm <task>` — Nalu designs the sub-agents the task needs (1-5), runs them
+  in parallel with read-only tools, then the lead finishes with full tools.
+- `/team <task>` — builds a named team with roles and a leader, runs tasks on a
+  LIVE task board (pending → working → done) in dependency order, then the
+  leader integrates and saves the board to `.nalu/plans/`.
+- Deep thinking: type `think`, `ultrathink`, or `packmind` in any message —
+  reasoning streams live, then the answer (same tiers as the website).
+
+Sub-agents are read-only by design: parallel agents never fight over files or
+interleave permission prompts — all changes flow through the lead.
 
 The agent reads/writes files, greps, searches the web (`web_search`/`fetch_url`
 hit the live internet via `/api/web`), and runs shell commands in your project —
