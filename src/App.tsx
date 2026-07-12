@@ -10,7 +10,7 @@ import CommandPalette from './components/CommandPalette'
 import StatusBar from './components/StatusBar'
 import SettingsModal from './components/SettingsModal'
 import UpdateBanner from './components/UpdateBanner'
-import { fetchMe } from './lib/naluApi'
+import { fetchMe, syncCliConfig } from './lib/naluApi'
 
 function Shell() {
   const ws = useWorkspace()
@@ -18,6 +18,7 @@ function Shell() {
   // On launch (and whenever a token appears), confirm the session maps to the
   // same DB user — powers the avatar + loads the user's chats.
   useEffect(() => { fetchMe().then((u) => ws.setUser(u)) }, [ws.settingsOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { syncCliConfig() }, []) // wire the terminal `nalu`/`claude`/`gpt` commands to the current session
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -16,6 +16,75 @@ import os from 'node:os'
 const isDev = !!process.env.VITE_DEV_SERVER_URL
 let win: BrowserWindow | null = null
 
+// ---------------------------------------------------------------------------
+// Nalu in the terminal. We install three commands onto the pty's PATH:
+//   nalu <prompt>        — ask Nalu (add -b for deep multi-model refine)
+//   claude <prompt>      — answer with YOUR Claude key; Nalu supercharges + learns
+//   gpt <prompt>         — same, with your OpenAI key
+// Every frontier answer is appended to ~/.nalu/training/capture.jsonl so Nalu can
+// train off it (continuous distillation toward the frontier). Config (Nalu token +
+// your frontier keys) lives in ~/.nalu/cli.json, synced from the app on login.
+// ---------------------------------------------------------------------------
+const NALU_HOME = path.join(os.homedir(), '.nalu')
+const NALU_BIN = path.join(NALU_HOME, 'bin')
+
+const CLI_NALU = `#!/usr/bin/env node
+const fs=require('fs'),os=require('os'),path=require('path'),https=require('https');
+const cfg=(()=>{try{return JSON.parse(fs.readFileSync(path.join(os.homedir(),'.nalu','cli.json'),'utf8'))}catch{return{}}})();
+let a=process.argv.slice(2);
+if(!a.length){console.log('nalu — ask Nalu from your terminal.\\n  nalu <prompt>        ask Nalu\\n  nalu -b <prompt>     deep mode (multi-model refine)\\nAlso: claude / gpt (your frontier model + Nalu supercharge & learning).');process.exit(0)}
+let think=0; if(a[0]==='-b'||a[0]==='--boost'){think=2;a=a.slice(1)}
+const body=JSON.stringify({messages:[{role:'user',content:a.join(' ')}],...(think?{think:true,thinkLevel:think}:{})});
+const u=new URL((cfg.apiBase||'https://n4lu.ai')+'/api/chat');
+const req=https.request({hostname:u.hostname,path:u.pathname,method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),...(cfg.token?{Authorization:'Bearer '+cfg.token}:{})}},res=>{let b='';res.setEncoding('utf8');res.on('data',d=>{b+=d;let i;while((i=b.indexOf('\\n'))>=0){const l=b.slice(0,i);b=b.slice(i+1);if(l.startsWith('data:')){try{const j=JSON.parse(l.slice(5).trim());if(j.text)process.stdout.write(j.text)}catch{}}}});res.on('end',()=>process.stdout.write('\\n'))});
+req.on('error',e=>console.error('\\x1b[31mnalu:\\x1b[0m',e.message));req.end(body);
+`
+
+const CLI_FRONTIER = (vendor: 'claude' | 'gpt') => `#!/usr/bin/env node
+const fs=require('fs'),os=require('os'),path=require('path'),https=require('https');
+const V='${vendor}';
+const cfg=(()=>{try{return JSON.parse(fs.readFileSync(path.join(os.homedir(),'.nalu','cli.json'),'utf8'))}catch{return{}}})();
+const prompt=process.argv.slice(2).join(' ');
+if(!prompt){console.log(V+' <prompt> — answer with your frontier model; Nalu supercharges the answer and learns from it.');process.exit(0)}
+const key=V==='claude'?cfg.anthropicKey:cfg.openaiKey;
+if(!key){console.error('\\x1b[33m'+V+':\\x1b[0m no API key set. Add it in Nalu → Settings → Supercharge.');process.exit(1)}
+let host,pathname,headers,payload,pick;
+if(V==='claude'){host='api.anthropic.com';pathname='/v1/messages';headers={'x-api-key':key,'anthropic-version':'2023-06-01','content-type':'application/json'};payload=JSON.stringify({model:cfg.claudeModel||'claude-sonnet-5',max_tokens:1500,stream:true,messages:[{role:'user',content:prompt}]});pick=j=>j.type==='content_block_delta'&&j.delta&&j.delta.text}
+else{host='api.openai.com';pathname='/v1/chat/completions';headers={'Authorization':'Bearer '+key,'content-type':'application/json'};payload=JSON.stringify({model:cfg.openaiModel||'gpt-5.6',stream:true,messages:[{role:'user',content:prompt}]});pick=j=>j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content}
+let answer='';
+const req=https.request({hostname:host,path:pathname,method:'POST',headers:{...headers,'Content-Length':Buffer.byteLength(payload)}},res=>{let b='';res.setEncoding('utf8');res.on('data',d=>{b+=d;let i;while((i=b.indexOf('\\n'))>=0){const l=b.slice(0,i).trim();b=b.slice(i+1);if(l.startsWith('data:')){const s=l.slice(5).trim();if(s==='[DONE]')continue;try{const j=JSON.parse(s);const t=pick(j)||'';if(t){answer+=t;process.stdout.write(t)}}catch{}}}});res.on('end',()=>{process.stdout.write('\\n');
+  // Nalu supercharge + learn: capture the frontier exchange as distillation data.
+  try{const dir=path.join(os.homedir(),'.nalu','training');fs.mkdirSync(dir,{recursive:true});fs.appendFileSync(path.join(dir,'capture.jsonl'),JSON.stringify({user:prompt,assistant:answer,teacher:V,ts:Date.now()})+'\\n');process.stdout.write('\\x1b[90m[nalu: captured for training ('+answer.length+' chars)]\\x1b[0m\\n')}catch{}
+})});
+req.on('error',e=>console.error('\\x1b[31m'+V+':\\x1b[0m',e.message));req.end(payload);
+`
+
+function ensureNaluCli(): void {
+  try {
+    fsSync.mkdirSync(NALU_BIN, { recursive: true })
+    const write = (name: string, body: string) => {
+      const p = path.join(NALU_BIN, name)
+      fsSync.writeFileSync(p, body, { mode: 0o755 })
+      try { fsSync.chmodSync(p, 0o755) } catch { /* */ }
+    }
+    write('nalu', CLI_NALU)
+    write('claude', CLI_FRONTIER('claude'))
+    write('gpt', CLI_FRONTIER('gpt'))
+  } catch { /* best-effort */ }
+}
+
+// Renderer syncs the Nalu token + optional frontier keys so the CLIs can auth.
+ipcMain.handle('nalu:cli-sync', (_e, cfg: Record<string, unknown>) => {
+  try {
+    fsSync.mkdirSync(NALU_HOME, { recursive: true })
+    const file = path.join(NALU_HOME, 'cli.json')
+    let cur: Record<string, unknown> = {}
+    try { cur = JSON.parse(fsSync.readFileSync(file, 'utf8')) } catch { /* */ }
+    fsSync.writeFileSync(file, JSON.stringify({ ...cur, ...cfg }, null, 2), { mode: 0o600 })
+    return true
+  } catch { return false }
+})
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1360,
@@ -607,7 +676,9 @@ ipcMain.handle('term:create', async (e, id: string, cwd: string, shellKind?: str
     cwd: cwd || os.homedir(),
     // Silence bash's macOS deprecation banner (in case bash is chosen) and point
     // $SHELL at the actual shell so subshells behave.
-    env: { ...process.env, TERM: 'xterm-256color', SHELL: shellPath, BASH_SILENCE_DEPRECATION_WARNING: '1', COLORTERM: 'truecolor' } as Record<string, string>,
+    // Prepend the Nalu CLI bin (nalu/claude/gpt) + common tool paths (GUI apps
+    // don't inherit the login shell's PATH) so `nalu <prompt>` works out of the box.
+    env: { ...process.env, PATH: `${NALU_BIN}:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || '/usr/bin:/bin'}`, TERM: 'xterm-256color', SHELL: shellPath, BASH_SILENCE_DEPRECATION_WARNING: '1', COLORTERM: 'truecolor' } as Record<string, string>,
   }) as unknown as PtyProc
   shells[id] = proc
   proc.onData((data) => e.sender.send(`term:data:${id}`, data))
@@ -632,6 +703,7 @@ ipcMain.handle('term:kill', (_e, id: string) => {
 // ---- App lifecycle ---------------------------------------------------------
 
 app.whenReady().then(createWindow)
+app.whenReady().then(() => ensureNaluCli())
 // Make git authenticated up front so the AI agent can `git push` via its run tool
 // (using the user's gh login) even as its very first action.
 app.whenReady().then(() => { void ensureGhGit() })

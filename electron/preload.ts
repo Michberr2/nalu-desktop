@@ -85,6 +85,10 @@ const api = {
     },
   },
 
+  // Sync the Nalu token (+ optional frontier keys) so the terminal `nalu`,
+  // `claude`, and `gpt` commands can authenticate.
+  cliSync: (cfg: Record<string, unknown>): Promise<boolean> => ipcRenderer.invoke('nalu:cli-sync', cfg),
+
   platform: process.platform,
 }
 

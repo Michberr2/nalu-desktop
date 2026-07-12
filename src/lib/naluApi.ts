@@ -9,6 +9,17 @@ export function getToken(): string {
 }
 export function setToken(t: string): void {
   localStorage.setItem('nalu-token', t)
+  syncCliConfig()
+}
+
+// Push the Nalu token (+ any frontier keys the user set) to ~/.nalu/cli.json so the
+// terminal `nalu`, `claude`, and `gpt` commands can authenticate. Frontier keys are
+// stored under 'nalu-supercharge' when the user configures Supercharge.
+export function syncCliConfig(): void {
+  try {
+    const boost = JSON.parse(localStorage.getItem('nalu-supercharge') || '{}') as Record<string, unknown>
+    void window.nalu?.cliSync?.({ token: getToken(), apiBase: API_BASE, ...boost })
+  } catch { /* desktop-only, best-effort */ }
 }
 
 // ---- Auth: the SAME accounts + sessions table as n4lu.ai. Signing in here with
@@ -93,6 +104,33 @@ export async function saveChats(chats: Chat[]): Promise<void> {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
     body: JSON.stringify({ action: 'set', token: getToken(), key: 'nalu-chats', value: JSON.stringify(chats) }),
   }).catch(() => {})
+}
+
+// ---- AutoPilot ledger: log IDE tasks to the shared per-user backend so they show
+// up live in the mobile AutoPilot screen (source 'desktop'). Reuse the returned
+// id to append progress/events. Best-effort — no token or offline → silent no-op.
+export type LoggedTask = { id: string }
+export async function logTask(t: {
+  id?: string
+  title?: string
+  detail?: string
+  status?: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+  progress?: number
+  event?: string
+}): Promise<LoggedTask | null> {
+  if (!getToken()) return null
+  try {
+    const res = await fetch(`${API_BASE}/api/data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify({ action: 'task-log', token: getToken(), source: 'desktop', ...t }),
+    })
+    if (!res.ok) return null
+    const d = (await res.json().catch(() => null)) as { task?: LoggedTask } | null
+    return d?.task ?? null
+  } catch {
+    return null
+  }
 }
 
 // Build a user message carrying an image (for the vision model / computer use).

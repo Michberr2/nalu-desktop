@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Check, Square, ChevronDown, X, FileText, FolderTree, Search as SearchIcon, Terminal, Pencil, CheckCircle2, Monitor, MousePointerClick } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
-import { streamChat, type WireMessage } from '../lib/naluApi'
+import { logTask, streamChat, type WireMessage } from '../lib/naluApi'
+
+// A local id so we can log a task's start and finish without waiting on the
+// server round-trip for an id. Time+random keeps it unique per run.
+function newTaskId(): string {
+  return 'ide_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+}
 import { runAgent, runComputer, type AgentStep, type AgentTool, type PcStep, type PcTool } from '../lib/agent'
 import wolfUrl from '../lib/wolf'
 
@@ -71,14 +77,19 @@ export default function NaluBar() {
     setAgentLog([{ kind: 'thought', text: `Task: ${task}` }])
     setOpen(true); setBusy(true)
     const ctrl = new AbortController(); abortRef.current = ctrl
+    // AutoPilot: this IDE task shows on the phone (per-user), live.
+    const taskId = newTaskId()
+    void logTask({ id: taskId, title: task.slice(0, 200), detail: `IDE agent · ${ws.folder?.split('/').pop() || 'workspace'}`, status: 'running', progress: 0.05, event: 'Agent task started' })
     try {
       await runAgent({
         task, folder: ws.folder, signal: ctrl.signal,
         onStep: (s) => { setAgentLog((p) => [...p, s]); if (s.kind === 'result' || s.kind === 'action') { ws.refresh(); void ws.reloadTabs() } scrollDown() },
         approve: (action) => (autoRef.current ? Promise.resolve(true) : new Promise((resolve) => setPending({ action, resolve }))),
       })
+      void logTask({ id: taskId, status: ctrl.signal.aborted ? 'cancelled' : 'done', progress: 1, event: ctrl.signal.aborted ? 'Stopped' : 'Completed' })
     } catch (e) {
       setAgentLog((p) => [...p, { kind: 'error', text: e instanceof Error ? e.message : 'agent error' }])
+      void logTask({ id: taskId, status: 'failed', event: e instanceof Error ? e.message.slice(0, 200) : 'agent error' })
     } finally { setBusy(false); abortRef.current = null; setPending(null) }
   }
 
@@ -90,13 +101,19 @@ export default function NaluBar() {
       if (!perms.accessibility) setPcLog((p) => [...p, { kind: 'thought', text: 'One-time setup: grant Nalu Accessibility in the window that just opened (System Settings → Privacy & Security → Accessibility), so it can click, type, and drive the browser. I can still open apps, run AppleScript, and use the terminal without it.' }])
     } catch { /* not mac / ignore */ }
     const ctrl = new AbortController(); abortRef.current = ctrl
+    const taskId = newTaskId()
+    void logTask({ id: taskId, title: task.slice(0, 200), detail: 'IDE computer use', status: 'running', progress: 0.05, event: 'Computer task started' })
     try {
       await runComputer({
         task, signal: ctrl.signal, autoApprove: () => autoRef.current,
         onStep: (s) => { setPcLog((p) => [...p, s]); scrollDown() },
         approve: (action) => new Promise((resolve) => setPcPending({ action, resolve })),
       })
-    } catch (e) { setPcLog((p) => [...p, { kind: 'error', text: e instanceof Error ? e.message : 'error' }]) }
+      void logTask({ id: taskId, status: ctrl.signal.aborted ? 'cancelled' : 'done', progress: 1, event: ctrl.signal.aborted ? 'Stopped' : 'Completed' })
+    } catch (e) {
+      setPcLog((p) => [...p, { kind: 'error', text: e instanceof Error ? e.message : 'error' }])
+      void logTask({ id: taskId, status: 'failed', event: e instanceof Error ? e.message.slice(0, 200) : 'error' })
+    }
     finally { setBusy(false); abortRef.current = null; setPcPending(null) }
   }
 
@@ -120,6 +137,9 @@ export default function NaluBar() {
     // A bare command runs verbatim; a natural-language goal goes agentic.
     const raw = request.trim()
     const looksRaw = /^(cd |ls|pwd|git |npm |npx |node |cat |grep |echo |mkdir|rm |cp |mv |brew |python|pip|curl |wget |find |which |touch |code |open |sudo |\.\/|bash |sh |zsh |chmod|chown|export |kill |ps |df |du |tar |zip |unzip |ssh |scp |make |cargo |go |docker )/.test(raw)
+    // Log agentic terminal goals (not one-off raw commands) to AutoPilot.
+    const termTaskId = looksRaw ? '' : newTaskId()
+    let termErr = ''
     try {
       if (looksRaw) {
         setTermLog((p) => [...p, { req: request, cmd: raw, out: '', running: true }]); scrollDown()
@@ -128,6 +148,7 @@ export default function NaluBar() {
         return
       }
       setTermLog((p) => [...p, { req: request, cmd: '', out: '', running: false }]); scrollDown()
+      void logTask({ id: termTaskId, title: request.slice(0, 200), detail: 'IDE terminal agent', status: 'running', progress: 0.05, event: 'Started' })
       const history: WireMessage[] = [
         { role: 'system', content: `You are Nalu operating the user's Mac terminal (zsh). Accomplish the user's goal by running shell commands — you can do ANYTHING on this computer: navigate anywhere (cd persists between your commands), read/write/move files, install tools (brew/npm/pip), run programs, inspect the system. Work step by step: reply with ONLY the single next shell command to run — no explanation, no markdown, no $, no comments. Read each command's output to decide the next command. When the goal is fully achieved, reply EXACTLY: DONE: <one-line summary>. Never refuse; if a command fails, try another way.` },
         { role: 'user', content: request },
@@ -157,8 +178,16 @@ export default function NaluBar() {
         if (dm) { setTermLog((p) => [...p, { req: '', cmd: '', out: '', done: dm[1].trim().slice(0, 300) }]); break }
       }
     } catch (e) {
+      termErr = e instanceof Error ? e.message : String(e)
       setTermLog((p) => { const c = [...p]; if (c.length) c[c.length - 1] = { ...c[c.length - 1], out: String(e), running: false }; return c })
-    } finally { setBusy(false); abortRef.current = null; scrollDown() }
+    } finally {
+      setBusy(false); abortRef.current = null; scrollDown()
+      if (termTaskId) {
+        void logTask(termErr
+          ? { id: termTaskId, status: 'failed', event: termErr.slice(0, 200) }
+          : { id: termTaskId, status: ctrl.signal.aborted ? 'cancelled' : 'done', progress: 1, event: ctrl.signal.aborted ? 'Stopped' : 'Completed' })
+      }
+    }
   }
 
   const send = async () => {

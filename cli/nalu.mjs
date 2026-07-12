@@ -622,6 +622,26 @@ async function toolWeb(apiBase, payload) {
   }
 }
 
+/** AutoPilot ledger: log/update a task on the shared per-user backend so it shows
+ *  up live in the mobile AutoPilot screen. Best-effort and non-blocking — if the
+ *  CLI isn't signed in (no token) or the network is down, it silently no-ops and
+ *  never affects the session. Reuse the same `id` to append progress/events. */
+async function logTask(state, fields) {
+  if (!state || !state.token) return null
+  try {
+    const r = await fetch(`${state.api}/api/data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': `nalu-cli/${VERSION}`, Authorization: `Bearer ${state.token}` },
+      body: JSON.stringify({ action: 'task-log', token: state.token, source: 'cli', ...fields }),
+    })
+    if (!r.ok) return null
+    const d = await r.json().catch(() => null)
+    return d && d.task ? d.task : null
+  } catch {
+    return null
+  }
+}
+
 /** One-line human summary of a tool call, for display. */
 function toolLabel(name, args) {
   const a = args || {}
@@ -1925,6 +1945,7 @@ async function main() {
 
   const state = {
     api,
+    token: config.token || '',
     messages: [],
     branch,
     yolo: args.yolo,
@@ -2118,8 +2139,18 @@ async function main() {
       out('\n' + gold(`◆ goal engaged:`) + ` ${goal}\n` + dim('  relentless mode — verifying after every round; Ctrl+C to call the pack off') + '\n\n')
       const MAX_ROUNDS = 100
       let achieved = false
+      // AutoPilot: surface this goal on the phone (per-user), live, from the CLI.
+      const goalTask = await logTask(state, {
+        title: goal.slice(0, 200),
+        detail: `Relentless goal · ${process.cwd().split('/').pop() || 'project'}${state.branch ? ` · ${state.branch}` : ''}`,
+        status: 'running',
+        progress: 0.05,
+        event: 'Goal engaged',
+      })
+      const goalTaskId = goalTask && goalTask.id
       for (let round = 1; round <= MAX_ROUNDS && !achieved; round++) {
         if (round > 1) out(dim(`\n◆ goal round ${round}`) + '\n')
+        if (goalTaskId) logTask(state, { id: goalTaskId, progress: Math.min(0.9, 0.1 + round * 0.08), event: `Round ${round}` })
         await runTurn(
           state,
           round === 1
@@ -2144,6 +2175,12 @@ async function main() {
         }
       }
       if (!achieved && !state.interrupted) out(red('goal loop hit the round limit — stopping. /goal again to resume.') + '\n')
+      // Mark the terminal state on the phone.
+      if (goalTaskId) {
+        if (achieved) logTask(state, { id: goalTaskId, status: 'done', progress: 1, event: 'Goal achieved' })
+        else if (state.interrupted) logTask(state, { id: goalTaskId, status: 'cancelled', event: 'Stopped by user' })
+        else logTask(state, { id: goalTaskId, status: 'failed', event: 'Hit round limit' })
+      }
       out('\n')
       continue
     }
