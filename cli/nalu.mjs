@@ -23,7 +23,7 @@ import * as readline from 'node:readline'
 import { spawn, execSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
-const VERSION = '1.8.1'
+const VERSION = '1.8.2'
 const DEFAULT_API = 'https://n4lu.com'
 const MAX_STEPS = 40 // max model↔tool round-trips per user message
 const MAX_TOOL_OUT = 30000 // chars of tool output sent back to the model
@@ -2002,9 +2002,11 @@ async function runDuo(state, task, { rounds = 1, roster } = {}) {
         const preview = p.text.split('\n').filter((l) => l.trim()).slice(0, 8).join('\n')
         out('\n' + gold(`◆ ${p.tool} proposed`) + dim(` (${p.text.length} chars)`) + '\n' + preview.replace(/^/gm, dim('  │ ')) + '\n')
       } else if (p) {
-        const emsg = String(p.err || p.error || 'no output')
+        const emsg = String(p.err || p.error || 'no output').replace(/\s+/g, ' ').trim()
         const authy = /401|unauthor|not logged|missing bearer|invalid.*key|forbidden|403/i.test(emsg)
-        out('\n' + red(`✗ ${p.tool} failed`) + dim(` — ${authy ? 'not signed in' : emsg}`) + (authy ? dim(` · run ${gold('/connect')}${dim(' to sign in')}`) : '') + '\n')
+        const ratey = /usage limit|rate.?limit|429|too many request|quota|over capacity|overloaded/i.test(emsg)
+        const label = authy ? 'not signed in' : ratey ? 'rate-limited — try again later' : emsg.slice(0, 150)
+        out('\n' + red(`✗ ${p.tool} unavailable`) + dim(` — ${label}`) + (authy ? dim(` · run ${gold('/connect')}${dim(' to sign in')}`) : '') + '\n')
       }
     }
 
@@ -2015,8 +2017,15 @@ async function runDuo(state, task, { rounds = 1, roster } = {}) {
     }
     const ok = proposals.filter((p) => p && p.ok && p.text)
     if (!ok.length) {
-      out('\n' + red('No CLI produced a usable proposal — nothing to integrate.') + '\n\n')
-      if (duoId) logTask(state, { id: duoId, status: 'failed', event: 'All CLIs failed' })
+      // Both CLIs are down (rate-limited / not signed in / erroring). DON'T dead-end —
+      // Nalu does the task itself so you ALWAYS get a result.
+      out('\n' + gold('◆ both CLIs are unavailable right now') + dim(' — Nalu will do it directly.') + '\n\n')
+      if (duoId) logTask(state, { id: duoId, progress: 0.6, event: 'CLIs unavailable; Nalu solo' })
+      state.busy = false
+      await runTurn(state, task)
+      if (duoId) logTask(state, { id: duoId, status: state.hadError ? 'failed' : 'done', progress: 1, event: state.hadError ? 'Error' : 'Done (Nalu solo)' })
+      if (!state.interrupted && !state.hadError) out(goldDim(`  — ${wolfFinisher()}`) + '\n')
+      out('\n')
       return
     }
     if (duoId) logTask(state, { id: duoId, progress: 0.6, event: `${ok.map((p) => p.tool).join(', ')} proposed; Nalu integrating` })
