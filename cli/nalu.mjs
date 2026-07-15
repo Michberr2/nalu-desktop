@@ -23,7 +23,7 @@ import * as readline from 'node:readline'
 import { spawn, execSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
-const VERSION = '1.7.0'
+const VERSION = '1.8.0'
 const DEFAULT_API = 'https://n4lu.com'
 const MAX_STEPS = 40 // max model↔tool round-trips per user message
 const MAX_TOOL_OUT = 30000 // chars of tool output sent back to the model
@@ -152,16 +152,16 @@ function renderBanner(cwdShort, branch, projFiles, colsOverride) {
     return [
       '',
       gold(bold('Getting started')),
-      item('/duo', '<task> — Claude + Codex, together'),
-      item('/team', '<task> — a role-based team'),
-      item('/goal', '<goal> — work until it is done'),
-      item('/help', 'all commands · /plan to plan'),
+      item('/connect', 'sign in Claude + Codex'),
+      item('claude', 'then codex — build a duo'),
+      item('…a task', 'they build it; Nalu conducts'),
+      item('/help', 'all commands · /plan'),
       '',
       dim('─'.repeat(R)),
       gold(bold("What's new")),
-      dim(V + ' · ') + gold('/duo'),
-      dim('two AI CLIs collaborate; Nalu'),
-      dim('conducts, builds & verifies it'),
+      dim('type ') + gold('claude') + dim(' + ') + gold('codex'),
+      dim('to build a duo, then a task —'),
+      dim('they propose, Nalu builds it'),
       goldDim('/help for more'),
     ]
   }
@@ -274,16 +274,20 @@ ${bold('In-session commands')}
                         parallel (read-only), then the lead finishes with full tools
   /team <task>          Builds a role-based team with a leader and a LIVE task
                         board; members work in dependency order, leader integrates
-  /duo <task> [--rounds 2]  Claude + Codex work the SAME task TOGETHER — each
-                        proposes read-only (in parallel), then Nalu conducts:
-                        it synthesizes both and builds the result with full tools
+  ${bold('The duo')} — make Claude + Codex work together, with Nalu conducting:
+  claude                Type a CLI's NAME to move it into the duo; type codex to
+  codex                 add it too. Then just type a TASK: each proposes in
+                        parallel (read-only) and Nalu synthesizes both and builds
+                        + verifies the result with full tools. Prompt shows the
+                        duo (duo:claude+codex ❯). /solo disbands it.
+  /connect              Sign into YOUR OWN Claude + Codex accounts from here
+                        (installs what's missing, runs each login) — each keeps
+                        its own account. Do this once before building a duo.
+  /duo [<task>]         Show the current duo, or run it on <task> (--rounds 2 =
+                        a cross-critique pass). /wrap <cmd> instead opens one CLI
+                        INTERACTIVELY (passthrough while Nalu watches + coaches).
   /plan <task>          Explore the code and write a step-by-step plan to .nalu/plans/
   /search <query>       Search the live web and show results right here
-  claude · codex · chatgpt · gemini · aider   Type an AI CLI's name to run it
-                        INSIDE Nalu — full passthrough while Nalu watches,
-                        coaches when it struggles, and documents everything it
-                        learns to ~/.nalu/knowledge/<tool>.md (/wrap <cmd> for
-                        any other CLI · /duo to make two of them collaborate)
   /help  /model  /status  /clear  /exit
   End a line with \\ to continue typing on the next line.
   Ctrl+C interrupts a running response.
@@ -1497,7 +1501,9 @@ function announcesIntent(t) {
   // past-tense completions ("Created the file"), which are real answers.
   if (
     /^(creating|adding|writing|updating|building|making|running|installing|setting up|fixing|implementing|generating|editing|modifying|configuring|applying|removing|deleting|reading|checking)\b/i.test(tail) &&
-    !/\b(would|could|should you|you can|you could|recommend\w*|consider\w*|is (?:a |the )?(?:good|wise|best)|might want|instead of)\b/i.test(tail)
+    !/\b(would|could|should you|you can|you could|recommend\w*|consider\w*|is (?:a |the )?(?:good|wise|best)|might want|instead of)\b/i.test(tail) &&
+    // not a completed-result line ("… now passes", "… succeeded", "✓ done")
+    !/\b(took|completed|done|confirmed|succeed\w*|finish\w*|pass\w*|works|shows?|already|successfully|verified|created|added|wrote|updated|built|fixed|removed|ready)\b|✓|✅/i.test(tail)
   )
     return true
   const intent =
@@ -1767,22 +1773,34 @@ async function runHeadlessCli(state, tool, prompt, { timeoutMs = 240000 } = {}) 
   if (!bin) return { ok: false, error: `${tool} is not installed` }
   const args = headlessArgs(tool, prompt)
   if (!args) return { ok: false, error: `${tool} has no headless mode` }
+  // Register an abort so Ctrl+C (interruptNow → workerAborts) cancels the run,
+  // and spawn detached so killTree takes down the CLI's whole process group
+  // (git/grep/build grandchildren) instead of orphaning them.
+  const ac = new AbortController()
+  state.workerAborts.add(ac)
   return await new Promise((resolve) => {
     let stdout = ''
     let stderr = ''
     let done = false
+    let child
+    const cleanup = () => {
+      clearTimeout(timer)
+      ac.signal.removeEventListener('abort', onAbort)
+      state.workerAborts.delete(ac)
+    }
     const finish = (v) => {
       if (done) return
       done = true
-      clearTimeout(timer)
-      try { child.kill('SIGKILL') } catch {}
+      cleanup()
+      if (child) killTree(child, 'SIGKILL')
       resolve(v)
     }
-    let child
+    const onAbort = () => finish({ ok: false, error: 'interrupted', text: stripAnsi(stdout).trim() })
+    ac.signal.addEventListener('abort', onAbort, { once: true })
     try {
-      child = spawn(bin, args, { cwd: process.cwd(), env: process.env })
+      child = spawn(bin, args, { cwd: process.cwd(), env: process.env, detached: true })
     } catch (e) {
-      return resolve({ ok: false, error: e.message })
+      return finish({ ok: false, error: e.message })
     }
     const timer = setTimeout(
       () => finish({ ok: false, error: `timed out after ${Math.round(timeoutMs / 1000)}s`, text: stripAnsi(stdout).trim() }),
@@ -1794,7 +1812,7 @@ async function runHeadlessCli(state, tool, prompt, { timeoutMs = 240000 } = {}) 
     child.on('close', (code) => {
       if (done) return
       done = true
-      clearTimeout(timer)
+      cleanup()
       const text = stripAnsi(stdout).trim()
       if (!text && code !== 0) {
         const err = stripAnsi(stderr).trim().split('\n').filter(Boolean).pop() || `exited ${code}`
@@ -1805,6 +1823,215 @@ async function runHeadlessCli(state, tool, prompt, { timeoutMs = 240000 } = {}) 
     })
     try { child.stdin.end() } catch {}
   })
+}
+
+// ── connecting each user's OWN Claude + Codex accounts (for /connect) ─────────
+// So a fresh user can, from inside Nalu, install + sign into their own accounts,
+// then /duo combines them. Each CLI keeps its own auth; Nalu just orchestrates.
+const CLI_ACCOUNTS = [
+  { tool: 'claude', name: 'Claude Code', pkg: '@anthropic-ai/claude-code', login: ['auth', 'login'], loginCmd: 'claude auth login' },
+  { tool: 'codex', name: 'Codex', pkg: '@openai/codex', login: ['login'], loginCmd: 'codex login' },
+]
+
+/** Run a command capturing BOTH stdout and stderr (some CLIs print status to
+ *  stderr — e.g. `codex login status`). ASYNC so it never blocks the event loop
+ *  (keeps the spinner alive and Ctrl+C responsive). Never rejects. */
+function capCmd(cmd, timeout = 15000) {
+  return new Promise((resolve) => {
+    let out = ''
+    let done = false
+    let child
+    const finish = (code) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      if (child) try { killTree(child, 'SIGKILL') } catch {}
+      resolve({ code, out })
+    }
+    try {
+      child = spawn(cmd, { shell: true, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+    } catch (e) {
+      return resolve({ code: 1, out: String((e && e.message) || '') })
+    }
+    const timer = setTimeout(() => finish(1), timeout)
+    child.stdout.on('data', (d) => { out += d.toString('utf8') })
+    child.stderr.on('data', (d) => { out += d.toString('utf8') })
+    child.on('close', (c) => { if (done) return; done = true; clearTimeout(timer); resolve({ code: c ?? 0, out }) })
+    child.on('error', () => finish(1))
+  })
+}
+
+/** { installed, loggedIn, detail } for one external CLI (claude / codex). */
+async function cliAuthStatus(tool) {
+  const bin = resolveToolBinary(tool, tool)
+  if (!bin) return { installed: false, loggedIn: false, detail: 'not installed' }
+  try {
+    if (tool === 'claude') {
+      const r = await capCmd(`"${bin}" auth status`)
+      const j = JSON.parse((r.out.match(/\{[\s\S]*\}/) || ['{}'])[0])
+      return { installed: true, loggedIn: !!j.loggedIn, detail: j.email || j.authMethod || (j.loggedIn ? 'signed in' : 'not signed in') }
+    }
+    // codex (and codex-served chatgpt)
+    const r = await capCmd(`"${bin}" login status`)
+    const loggedIn = /logged in/i.test(r.out) && !/not logged in/i.test(r.out)
+    return { installed: true, loggedIn, detail: loggedIn ? r.out.replace(/\s+/g, ' ').trim().slice(0, 60) : 'not signed in' }
+  } catch {
+    return { installed: true, loggedIn: false, detail: 'not signed in' }
+  }
+}
+
+/** Hand the terminal to a tool's own login flow (browser OAuth), then return. */
+async function runLoginFlow(state, tool, bin, loginArgs) {
+  out('\n' + gold(`◆ signing in to ${tool}`) + dim(' — follow the prompts; a browser may open. Nalu waits here.') + '\n\n')
+  try { state.rl.pause() } catch {}
+  // hand the terminal over in COOKED mode so the login's own prompts read input
+  // normally; readline re-asserts its mode on resume() afterward.
+  try { if (process.stdin.isTTY) process.stdin.setRawMode(false) } catch {}
+  const code = await new Promise((resolve) => {
+    let child
+    try {
+      child = spawn(bin, loginArgs, { stdio: 'inherit' })
+    } catch (e) {
+      out(red(`  could not start ${tool} login: ${e.message}`) + '\n')
+      return resolve(-1)
+    }
+    child.on('close', (c) => resolve(c ?? 0))
+    child.on('error', (e) => {
+      out(red(`  ${tool} login error: ${e.message}`) + '\n')
+      resolve(-1)
+    })
+  })
+  try { state.rl.resume() } catch {}
+  return code
+}
+
+// ── the duo engine ───────────────────────────────────────────────────────────
+// The enrolled CLIs (state.duo, e.g. claude + codex) each PROPOSE read-only in
+// parallel, then Nalu integrates with full tools. state.busy is held so Ctrl+C
+// CANCELS (interruptNow kills the children) instead of quitting Nalu; multi-round
+// carries a prior good proposal forward so a late transient failure can't erase it.
+async function runDuo(state, task, { rounds = 1, roster } = {}) {
+  const wanted = roster && roster.length ? roster : state.duo && state.duo.length ? state.duo.slice() : ['claude', 'codex']
+  const present = wanted.map((t) => ({ tool: t, bin: resolveToolBinary(t, t) })).filter((r) => r.bin)
+  const missing = wanted.filter((t) => !present.some((p) => p.tool === t))
+  if (!present.length) {
+    out('\n' + red(`None of your duo (${wanted.join(', ')}) is installed.`) + '\n')
+    out(dim('  run ') + gold('/connect') + dim(' to install + sign into Claude + Codex, then try again.') + '\n\n')
+    return
+  }
+  out('\n' + gold('◆ duo') + dim(` — ${present.map((p) => p.tool).join(' + ')} on it; Nalu conducts`) + '\n')
+  if (missing.length) out(dim(`  (${missing.join(', ')} not installed — /connect to add ${missing.length > 1 ? 'them' : 'it'})`) + '\n')
+  out(dim('  each proposes read-only; Nalu integrates with full tools' + (rounds > 1 ? ` · ${rounds} rounds` : '')) + '\n\n')
+
+  const duoTask = await logTask(state, { title: `Duo: ${task.slice(0, 60)}`, detail: present.map((p) => p.tool).join('+'), status: 'running', progress: 0.1, event: `Dispatched to ${present.map((p) => p.tool).join(', ')}` })
+  const duoId = duoTask?.id
+
+  const status = present.map((p) => ({ tool: p.tool, state: 'working', started: Date.now(), dur: 0, err: '' }))
+  let statusLines = 0
+  const renderStatus = () => {
+    const rows = status.map((s) => {
+      const mark = s.state === 'working' ? gold('▸') : s.state === 'done' ? green('✓') : red('✗')
+      const secs = Math.round((s.dur || Date.now() - s.started) / 1000)
+      return `  ${mark} ${s.tool}  ${dim(`${secs}s${s.state === 'working' ? ' · thinking…' : s.state === 'failed' ? ' · ' + (s.err || 'failed') : ' · proposed'}`)}`
+    })
+    if (TTY && statusLines) out(`\x1b[${statusLines}A\x1b[0J`)
+    out(rows.join('\n') + '\n')
+    statusLines = rows.length
+  }
+  const proposeInstr = (tool, others) =>
+    `${task}\n\nYou are the "${tool}" CLI, collaborating with another AI coding agent under Nalu's coordination.` +
+    (others
+      ? `\n\nThe other agent proposed:\n${others}\n\nCritique it against your own view, then give a SINGLE improved, merged proposal.`
+      : `\n\nInspect this repository (read-only) and produce your BEST concrete proposal.`) +
+    `\nInclude: the approach, exact files/functions to change, key code or commands, and gotchas. Do NOT modify anything — Nalu will implement the final result. Be specific and terse.`
+
+  state.busy = true
+  state.interrupted = false
+  let proposals = []
+  try {
+    for (let round = 1; round <= rounds && !state.interrupted; round++) {
+      if (round > 1) {
+        out('\n' + gold(`◆ round ${round}`) + dim(' — each reads the other and refines') + '\n')
+        status.forEach((s) => { s.state = 'working'; s.started = Date.now(); s.dur = 0 })
+      }
+      statusLines = 0
+      const ticker = TTY ? setInterval(renderStatus, 500) : null
+      if (TTY) renderStatus()
+      const prev = proposals
+      const fresh = await Promise.all(
+        present.map(async (p, i) => {
+          const others = prev.filter((x) => x && x.tool !== p.tool && x.ok).map((x) => `--- ${x.tool} ---\n${String(x.text).slice(0, 4000)}`).join('\n\n')
+          const r = await runHeadlessCli(state, p.tool, proposeInstr(p.tool, others))
+          status[i].state = r.ok && r.text ? 'done' : 'failed'
+          status[i].dur = Date.now() - status[i].started
+          if (!r.ok) status[i].err = r.error
+          if (TTY) renderStatus()
+          return { tool: p.tool, ...r }
+        }),
+      )
+      if (ticker) clearInterval(ticker)
+      // carry forward: a later-round failure keeps this tool's earlier good proposal
+      proposals = fresh.map((r, i) => (r.ok && r.text ? r : prev[i] && prev[i].ok && prev[i].text ? prev[i] : r))
+      renderStatus()
+    }
+
+    for (const p of proposals) {
+      if (p && p.ok && p.text) {
+        const preview = p.text.split('\n').filter((l) => l.trim()).slice(0, 8).join('\n')
+        out('\n' + gold(`◆ ${p.tool} proposed`) + dim(` (${p.text.length} chars)`) + '\n' + preview.replace(/^/gm, dim('  │ ')) + '\n')
+      } else if (p) {
+        const emsg = String(p.err || p.error || 'no output')
+        const authy = /401|unauthor|not logged|missing bearer|invalid.*key|forbidden|403/i.test(emsg)
+        out('\n' + red(`✗ ${p.tool} failed`) + dim(` — ${authy ? 'not signed in' : emsg}`) + (authy ? dim(` · run ${gold('/connect')}${dim(' to sign in')}`) : '') + '\n')
+      }
+    }
+
+    if (state.interrupted) {
+      out('\n' + dim('(interrupted)') + '\n\n')
+      if (duoId) logTask(state, { id: duoId, status: 'cancelled', event: 'Stopped by user' })
+      return
+    }
+    const ok = proposals.filter((p) => p && p.ok && p.text)
+    if (!ok.length) {
+      out('\n' + red('No CLI produced a usable proposal — nothing to integrate.') + '\n\n')
+      if (duoId) logTask(state, { id: duoId, status: 'failed', event: 'All CLIs failed' })
+      return
+    }
+    if (duoId) logTask(state, { id: duoId, progress: 0.6, event: `${ok.map((p) => p.tool).join(', ')} proposed; Nalu integrating` })
+    out('\n' + gold('◆ Nalu integrating') + dim(` — synthesizing ${ok.map((p) => p.tool).join(' + ')} and building it`) + '\n\n')
+    state.busy = false // integration is a normal turn; runTurn manages its own busy/abort
+    await runTurn(
+      state,
+      `TASK: ${task}\n\n${ok.length > 1 ? 'Two AI coding CLIs' : `The "${ok[0].tool}" CLI`} worked this task under your coordination and returned the proposal${ok.length > 1 ? 's' : ''} below. As the lead with FULL tools, produce the final result: take the strongest ideas${ok.length > 1 ? ' from each, resolve any disagreements,' : ''} then IMPLEMENT it for real (create/modify exactly the files the task needs) and VERIFY (read back / run checks).${ok.length > 1 ? ' Briefly note where you followed ' + ok.map((p) => p.tool).join(' vs ') + '.' : ''}\n\nBegin NOW with your first tool call — do NOT narrate ("Creating…", "Let me…") before acting; make the change, then report what you did.\n\n${ok.map((p) => `===== ${p.tool}'s proposal =====\n${String(p.text).slice(0, 6000)}`).join('\n\n')}`,
+    )
+    if (duoId) logTask(state, { id: duoId, status: state.hadError ? 'failed' : 'done', progress: 1, event: state.hadError ? 'Integration error' : 'Integrated + built' })
+    if (!state.interrupted && !state.hadError) out(goldDim(`  — ${wolfFinisher()}`) + '\n')
+    out('\n')
+  } finally {
+    state.busy = false
+  }
+}
+
+// Typing a CLI's launch name (claude, codex, …) MOVES it into the duo and shows
+// the roster with each member's sign-in state. Then a plain task runs the duo.
+async function enrollInDuo(state, tool) {
+  const already = state.duo.includes(tool)
+  if (!already) state.duo.push(tool)
+  out('\n' + gold(`  ◆ ${tool} ${already ? 'is already in the duo' : '→ moved into the duo'}`) + '\n')
+  let anyReady = false
+  for (const t of state.duo) {
+    const s = await cliAuthStatus(t)
+    if (s.installed && s.loggedIn) anyReady = true
+    const mark = s.installed && s.loggedIn ? green('●') : gold('○')
+    const note = !s.installed
+      ? red('not installed') + dim(' — /connect')
+      : !s.loggedIn
+        ? red('not signed in') + dim(' — /connect')
+        : green('ready') + (s.detail && s.detail !== 'signed in' ? dim(' · ' + s.detail) : '')
+    out(`    ${mark} ${t}  ${note}` + '\n')
+  }
+  if (anyReady) out(dim(`  type a task and ${state.duo.length > 1 ? 'they work it together' : 'it + Nalu work it'} · add more by name · /solo to disband`) + '\n\n')
+  else out(dim('  run ') + gold('/connect') + dim(' to sign in, then type a task') + '\n\n')
 }
 
 async function wrapSession(state, cmdline, tool) {
@@ -2127,6 +2354,7 @@ async function main() {
     hadError: false,
     forcedSpecialist: '',
     turnThink: 0,
+    duo: [], // enrolled AI CLIs (claude, codex, …) built by typing their names
     rl: null,
   }
 
@@ -2244,7 +2472,8 @@ async function main() {
         resolve('/exit')
       }
     })
-  const question = () => ask(gold('❯ '))
+  const question = () =>
+    ask(state.duo.length ? goldDim(`duo:${state.duo.join('+')} `) + gold('❯ ') : gold('❯ '))
 
   let pending = args.prompt || ''
   for (;;) {
@@ -2257,6 +2486,7 @@ async function main() {
     }
     const line = input.trim()
     if (!line) continue
+    state.interrupted = false // fresh input — clear any leftover interrupt from a prior turn
     if (line === '/exit' || line === '/quit' || line === 'exit') {
       out(dim('bye') + '\n')
       break
@@ -2477,109 +2707,77 @@ async function main() {
     // so two agents never clobber each other). Nalu synthesizes and does the real
     // work with full tools. --rounds 2 adds a cross-critique pass (they read each
     // other's proposal and merge). Aliases: /pair /together.
+    // /duo — run the current duo (state.duo, built by typing CLI names) on a task,
+    // or show it. The main way in is just typing a task once a duo is enrolled.
     if (/^\/(duo|pair|together)(\s|$)/.test(line)) {
       let rest = line.replace(/^\/(duo|pair|together)\s*/, '').trim()
       let rounds = 1
       rest = rest.replace(/--rounds\s+(\d+)/i, (_, n) => { rounds = Math.max(1, Math.min(3, Number(n))); return '' }).trim()
-      const task = rest
-      if (!task) {
-        out(dim('usage: /duo <task> [--rounds 2]  — Claude + Codex work the task together; Nalu conducts and builds the result') + '\n')
+      if (rest === 'clear' || rest === 'off' || rest === 'disband') {
+        state.duo = []
+        out(dim('duo disbanded — back to solo Nalu') + '\n')
         continue
       }
-      // roster: the two headliners, plus whichever are actually installed
-      const wanted = ['claude', 'codex']
-      const present = wanted.map((t) => ({ tool: t, bin: resolveToolBinary(t, t) })).filter((r) => r.bin)
-      const missing = wanted.filter((t) => !present.some((p) => p.tool === t))
-      if (!present.length) {
-        out(red('Neither claude nor codex is installed.') + '\n')
-        out(dim('  install Claude Code:  npm i -g @anthropic-ai/claude-code   (or see claude.com/claude-code)') + '\n')
-        out(dim('  install Codex:        npm i -g @openai/codex') + '\n')
-        out(dim('  then run each once to sign in, and try /duo again.') + '\n')
+      if (!rest) {
+        if (state.duo.length) out(gold('◆ duo: ') + state.duo.map((t) => gold(t)).join(dim(' + ')) + dim('  — type a task and they work it together · /solo to disband') + '\n')
+        else out(dim('duo is empty — type an AI CLI name (') + gold('claude') + dim(', ') + gold('codex') + dim(') to add it, then type a task. Or: /duo <task>') + '\n')
         continue
       }
-      out('\n' + gold('◆ duo') + dim(` — ${present.map((p) => p.tool).join(' + ')} collaborate; Nalu conducts`) + '\n')
-      if (missing.length) out(dim(`  (${missing.join(', ')} not installed — running with ${present.map((p) => p.tool).join(' + ')}; install to add ${missing.length > 1 ? 'them' : 'it'})`) + '\n')
-      out(dim(`  each proposes read-only (no edits); Nalu integrates with full tools` + (rounds > 1 ? ` · ${rounds} rounds` : '')) + '\n\n')
-
-      const duoTask = await logTask(state, { title: `Duo: ${task.slice(0, 60)}`, detail: `${present.map((p) => p.tool).join('+')} via Nalu`, status: 'running', progress: 0.1, event: `Dispatched to ${present.map((p) => p.tool).join(', ')}` })
-      const duoId = duoTask?.id
-
-      // live per-CLI status board (re-rendered in place on a TTY)
-      const status = present.map((p) => ({ tool: p.tool, state: 'working', started: Date.now(), dur: 0 }))
-      let statusLines = 0
-      const renderStatus = () => {
-        const rows = status.map((s) => {
-          const mark = s.state === 'working' ? gold('▸') : s.state === 'done' ? green('✓') : red('✗')
-          const secs = Math.round((s.dur || Date.now() - s.started) / 1000)
-          return `  ${mark} ${s.tool}  ${dim(`${secs}s${s.state === 'working' ? ' · thinking…' : s.state === 'failed' ? ' · ' + (s.err || 'failed') : ' · proposed'}`)}`
-        })
-        if (TTY && statusLines) out(`\x1b[${statusLines}A\x1b[0J`)
-        out(rows.join('\n') + '\n')
-        statusLines = rows.length
-      }
-
-      const proposeInstr = (tool, others) =>
-        `${task}\n\nYou are the "${tool}" CLI, collaborating with another AI coding agent under Nalu's coordination.` +
-        (others
-          ? `\n\nThe other agent proposed:\n${others}\n\nCritique it against your own view, then give a SINGLE improved, merged proposal.`
-          : `\n\nInspect this repository (read-only) and produce your BEST concrete proposal.`) +
-        `\nInclude: the approach, exact files/functions to change, key code or commands, and gotchas. Do NOT modify anything — Nalu will implement the final result. Be specific and terse.`
-
-      let proposals = []
-      for (let round = 1; round <= rounds && !state.interrupted; round++) {
-        if (round > 1) {
-          out('\n' + gold(`◆ round ${round}`) + dim(' — each reads the other and refines') + '\n')
-          status.forEach((s) => { s.state = 'working'; s.started = Date.now(); s.dur = 0 })
+      await runDuo(state, rest, { rounds })
+      continue
+    }
+    // /solo — disband the duo, back to talking to Nalu alone
+    if (line === '/solo' || line === '/undo-duo') {
+      state.duo = []
+      out(dim('duo disbanded — back to solo Nalu') + '\n')
+      continue
+    }
+    // /connect — sign into YOUR OWN Claude + Codex accounts from inside Nalu, so
+    // /duo can combine them. Installs what's missing, runs each login flow.
+    if (/^\/(connect|login|accounts)(\s|$)/.test(line)) {
+      state.interrupted = false
+      out('\n' + gold('◆ connect your accounts') + dim(' — sign into your OWN Claude + Codex; then /duo combines them') + '\n\n')
+      for (const acc of CLI_ACCOUNTS) {
+        if (state.interrupted) break
+        let st = await cliAuthStatus(acc.tool)
+        if (!st.installed) {
+          if (!TTY) {
+            out(dim(`  ${acc.name} not installed — run /connect in an interactive terminal, or: npm i -g ${acc.pkg}`) + '\n\n')
+            continue
+          }
+          const ans = (await askLine(state, `  ${acc.name} ${dim('(' + acc.tool + ')')} not installed — ${gold('install it?')} ${dim(`(npm i -g ${acc.pkg}) [y/n] `)}`)).trim().toLowerCase()
+          if (ans === 'y' || ans === 'yes') {
+            const sp = makeSpinner(`installing ${acc.tool}…`)
+            const inst = await capCmd(`npm install -g ${acc.pkg}`, 180000)
+            sp.stop()
+            st = await cliAuthStatus(acc.tool)
+            if (st.installed) out(green(`  ✓ installed ${acc.tool}`) + '\n')
+            else {
+              const lastErr = inst.out.trim().split('\n').filter(Boolean).pop() || `exited ${inst.code}`
+              out(red(`  ✗ install failed`) + dim(` — ${lastErr.slice(0, 160)}`) + '\n' + dim(`    try: npm i -g ${acc.pkg}   (permissions? a Node version manager avoids sudo)`) + '\n\n')
+              continue
+            }
+          } else {
+            out(dim(`  skipped ${acc.tool} — install later with: npm i -g ${acc.pkg}`) + '\n\n')
+            continue
+          }
         }
-        statusLines = 0
-        const ticker = TTY ? setInterval(renderStatus, 500) : null
-        if (TTY) renderStatus()
-        const prev = proposals
-        proposals = await Promise.all(
-          present.map(async (p, i) => {
-            const others = prev.filter((x) => x.tool !== p.tool && x.ok).map((x) => `--- ${x.tool} ---\n${String(x.text).slice(0, 4000)}`).join('\n\n')
-            const r = await runHeadlessCli(state, p.tool, proposeInstr(p.tool, others))
-            status[i].state = r.ok && r.text ? 'done' : 'failed'
-            status[i].dur = Date.now() - status[i].started
-            if (!r.ok) status[i].err = r.error
-            if (TTY) renderStatus()
-            return { tool: p.tool, ...r }
-          }),
-        )
-        if (ticker) clearInterval(ticker)
-        renderStatus() // final board (in-place on a TTY; one clean print otherwise)
-      }
-
-      // show each CLI's proposal preview so you see who said what
-      for (const p of proposals) {
-        if (p.ok && p.text) {
-          const preview = p.text.split('\n').filter((l) => l.trim()).slice(0, 8).join('\n')
-          out('\n' + gold(`◆ ${p.tool} proposed`) + dim(` (${p.text.length} chars)`) + '\n' + preview.replace(/^/gm, dim('  │ ')) + '\n')
-        } else {
-          out('\n' + red(`✗ ${p.tool} failed`) + dim(` — ${p.err || p.error || 'no output'}`) + '\n')
+        if (st.installed && !st.loggedIn && !state.interrupted) {
+          if (!TTY) {
+            out(dim(`  ${acc.name} not signed in — run /connect in an interactive terminal, or: ${acc.loginCmd}`) + '\n')
+          } else {
+            const bin = resolveToolBinary(acc.tool, acc.tool)
+            if (bin) await runLoginFlow(state, acc.tool, bin, acc.login)
+            st = await cliAuthStatus(acc.tool)
+          }
         }
+        out((st.loggedIn ? green(`  ✓ ${acc.name}`) + dim(` — ${st.detail}`) : red(`  ✗ ${acc.name}`) + dim(` — not signed in (retry /connect, or run: ${acc.loginCmd})`)) + '\n\n')
       }
-
-      const ok = proposals.filter((p) => p.ok && p.text)
-      if (state.interrupted) {
-        out('\n' + dim('(interrupted)') + '\n\n')
-        if (duoId) logTask(state, { id: duoId, status: 'cancelled', event: 'Stopped by user' })
-        continue
-      }
-      if (!ok.length) {
-        out('\n' + red('No CLI produced a usable proposal — nothing to integrate.') + '\n\n')
-        if (duoId) logTask(state, { id: duoId, status: 'failed', event: 'All CLIs failed' })
-        continue
-      }
-      if (duoId) logTask(state, { id: duoId, progress: 0.6, event: `${ok.map((p) => p.tool).join(', ')} proposed; Nalu integrating` })
-      out('\n' + gold('◆ Nalu integrating') + dim(` — synthesizing ${ok.map((p) => p.tool).join(' + ')} and building it`) + '\n\n')
-      await runTurn(
-        state,
-        `TASK: ${task}\n\n${ok.length > 1 ? 'Two AI coding CLIs' : `The "${ok[0].tool}" CLI`} worked this task under your coordination and returned the proposal${ok.length > 1 ? 's' : ''} below. As the lead with FULL tools, produce the final result: take the strongest ideas${ok.length > 1 ? ' from each, resolve any disagreements,' : ''} then IMPLEMENT it for real (create/modify exactly the files the task needs) and VERIFY (read back / run checks).${ok.length > 1 ? ' Briefly note where you followed ' + ok.map((p) => p.tool).join(' vs ') + '.' : ''}\n\nBegin NOW with your first tool call — do NOT narrate ("Creating…", "Let me…") before acting; make the change, then report what you did.\n\n${ok.map((p) => `===== ${p.tool}'s proposal =====\n${String(p.text).slice(0, 6000)}`).join('\n\n')}`,
-      )
-      if (duoId) logTask(state, { id: duoId, status: state.hadError ? 'failed' : 'done', progress: 1, event: state.hadError ? 'Integration error' : 'Integrated + built' })
-      if (!state.interrupted && !state.hadError) out(goldDim(`  — ${wolfFinisher()}`) + '\n')
-      out('\n')
+      const ready = []
+      for (const a of CLI_ACCOUNTS) if ((await cliAuthStatus(a.tool)).loggedIn) ready.push(a.tool)
+      if (ready.length >= 2) out(gold('◆ both connected') + dim(' — run ') + gold(bold('/duo <task>')) + dim(' and Nalu puts Claude + Codex to work together') + '\n\n')
+      else if (ready.length === 1) out(gold(`◆ ${ready[0]} connected`) + dim(` — /duo works now with ${ready[0]}; connect the other for the full duo`) + '\n\n')
+      else out(dim('  nothing connected yet — run /connect again when you are ready') + '\n\n')
       continue
     }
     if (line === '/plan' || line.startsWith('/plan ')) {
@@ -2627,12 +2825,25 @@ async function main() {
     }
     const wrapReq = wrapCommandFor(line)
     if (wrapReq) {
+      // Typing just a duo-capable CLI's NAME (claude, codex, gemini) moves it
+      // into the duo. `/wrap <cmd>` or a name WITH args still opens it interactively.
+      const bareName = !line.startsWith('/wrap') && wrapReq.cmdline.trim() === wrapReq.tool
+      if (bareName && HEADLESS_TOOLS.includes(wrapReq.tool)) {
+        await enrollInDuo(state, wrapReq.tool)
+        continue
+      }
       await wrapSession(state, wrapReq.cmdline, wrapReq.tool)
       out('\n')
       continue
     }
     if (line.startsWith('/')) {
       out(dim(`unknown command ${line.split(' ')[0]} — try /help`) + '\n')
+      continue
+    }
+    // A duo is enrolled → a plain task goes to the duo (Claude + Codex propose,
+    // Nalu builds). Talk to Nalu alone again with /solo.
+    if (state.duo.length) {
+      await runDuo(state, input)
       continue
     }
     out('\n')
