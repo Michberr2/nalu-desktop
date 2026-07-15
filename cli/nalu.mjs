@@ -23,7 +23,7 @@ import * as readline from 'node:readline'
 import { spawn, execSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
-const VERSION = '1.8.0'
+const VERSION = '1.8.1'
 const DEFAULT_API = 'https://n4lu.com'
 const MAX_STEPS = 40 // max model↔tool round-trips per user message
 const MAX_TOOL_OUT = 30000 // chars of tool output sent back to the model
@@ -1749,7 +1749,10 @@ function resolveToolBinary(tool, cmdline) {
 // Unlike /wrap (one interactive tool owning stdin), /duo drives several CLIs
 // NON-interactively: Nalu keeps the terminal and asks each one to PROPOSE, then
 // integrates. Read-only by design so two agents never fight over the same files.
-const HEADLESS_TOOLS = ['claude', 'codex', 'gemini']
+// Only CLIs with a real read-only/sandbox mode belong here — the duo promises
+// "each proposes read-only", so a member that could edit files must NOT be listed.
+// (gemini has no read-only flag → excluded until it does.)
+const HEADLESS_TOOLS = ['claude', 'codex']
 
 /** Non-interactive, read-only argv for a tool (null if it has no headless mode). */
 function headlessArgs(tool, prompt) {
@@ -1783,8 +1786,9 @@ async function runHeadlessCli(state, tool, prompt, { timeoutMs = 240000 } = {}) 
     let stderr = ''
     let done = false
     let child
+    let timer = null // declared before the spawn try/catch so cleanup never hits a TDZ
     const cleanup = () => {
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
       ac.signal.removeEventListener('abort', onAbort)
       state.workerAborts.delete(ac)
     }
@@ -1802,12 +1806,13 @@ async function runHeadlessCli(state, tool, prompt, { timeoutMs = 240000 } = {}) 
     } catch (e) {
       return finish({ ok: false, error: e.message })
     }
-    const timer = setTimeout(
+    timer = setTimeout(
       () => finish({ ok: false, error: `timed out after ${Math.round(timeoutMs / 1000)}s`, text: stripAnsi(stdout).trim() }),
       timeoutMs,
     )
-    child.stdout.on('data', (d) => { stdout += d.toString('utf8') })
-    child.stderr.on('data', (d) => { stderr += d.toString('utf8') })
+    // cap buffers so a runaway/verbose CLI can't grow memory without bound
+    child.stdout.on('data', (d) => { if (stdout.length < MAX_TOOL_OUT * 2) stdout += d.toString('utf8') })
+    child.stderr.on('data', (d) => { if (stderr.length < MAX_TOOL_OUT * 2) stderr += d.toString('utf8') })
     child.on('error', (e) => finish({ ok: false, error: e.message }))
     child.on('close', (code) => {
       if (done) return
@@ -1834,45 +1839,59 @@ const CLI_ACCOUNTS = [
 ]
 
 /** Run a command capturing BOTH stdout and stderr (some CLIs print status to
- *  stderr — e.g. `codex login status`). ASYNC so it never blocks the event loop
- *  (keeps the spinner alive and Ctrl+C responsive). Never rejects. */
-function capCmd(cmd, timeout = 15000) {
+ *  stderr — e.g. `codex login status`). ASYNC so it never blocks the event loop.
+ *  Pass `state` for a long call (npm install) so Ctrl+C (interruptNow →
+ *  workerAborts) cancels it and killTree tears down the detached group. Never rejects. */
+function capCmd(cmd, timeout = 15000, state = null) {
   return new Promise((resolve) => {
     let out = ''
     let done = false
     let child
+    let timer = null
+    const ac = state ? new AbortController() : null
+    if (ac) state.workerAborts.add(ac)
+    const cleanup = () => {
+      if (timer) clearTimeout(timer)
+      if (ac) {
+        ac.signal.removeEventListener('abort', onAbort)
+        state.workerAborts.delete(ac)
+      }
+    }
     const finish = (code) => {
       if (done) return
       done = true
-      clearTimeout(timer)
+      cleanup()
       if (child) try { killTree(child, 'SIGKILL') } catch {}
       resolve({ code, out })
     }
+    const onAbort = () => finish(130)
+    if (ac) ac.signal.addEventListener('abort', onAbort, { once: true })
     try {
       child = spawn(cmd, { shell: true, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
     } catch (e) {
+      cleanup()
       return resolve({ code: 1, out: String((e && e.message) || '') })
     }
-    const timer = setTimeout(() => finish(1), timeout)
-    child.stdout.on('data', (d) => { out += d.toString('utf8') })
-    child.stderr.on('data', (d) => { out += d.toString('utf8') })
-    child.on('close', (c) => { if (done) return; done = true; clearTimeout(timer); resolve({ code: c ?? 0, out }) })
+    timer = setTimeout(() => finish(1), timeout)
+    child.stdout.on('data', (d) => { if (out.length < MAX_TOOL_OUT * 2) out += d.toString('utf8') })
+    child.stderr.on('data', (d) => { if (out.length < MAX_TOOL_OUT * 2) out += d.toString('utf8') })
+    child.on('close', (c) => { if (done) return; done = true; cleanup(); resolve({ code: c ?? 0, out }) })
     child.on('error', () => finish(1))
   })
 }
 
 /** { installed, loggedIn, detail } for one external CLI (claude / codex). */
-async function cliAuthStatus(tool) {
+async function cliAuthStatus(tool, state = null) {
   const bin = resolveToolBinary(tool, tool)
   if (!bin) return { installed: false, loggedIn: false, detail: 'not installed' }
   try {
     if (tool === 'claude') {
-      const r = await capCmd(`"${bin}" auth status`)
+      const r = await capCmd(`"${bin}" auth status`, 15000, state)
       const j = JSON.parse((r.out.match(/\{[\s\S]*\}/) || ['{}'])[0])
       return { installed: true, loggedIn: !!j.loggedIn, detail: j.email || j.authMethod || (j.loggedIn ? 'signed in' : 'not signed in') }
     }
     // codex (and codex-served chatgpt)
-    const r = await capCmd(`"${bin}" login status`)
+    const r = await capCmd(`"${bin}" login status`, 15000, state)
     const loggedIn = /logged in/i.test(r.out) && !/not logged in/i.test(r.out)
     return { installed: true, loggedIn, detail: loggedIn ? r.out.replace(/\s+/g, ' ').trim().slice(0, 60) : 'not signed in' }
   } catch {
@@ -1901,6 +1920,9 @@ async function runLoginFlow(state, tool, bin, loginArgs) {
       resolve(-1)
     })
   })
+  // restore raw mode for readline (resume() does NOT re-assert it) so line
+  // editing, history, and idle Ctrl+C keep working for the rest of the session.
+  try { if (process.stdin.isTTY) process.stdin.setRawMode(true) } catch {}
   try { state.rl.resume() } catch {}
   return code
 }
@@ -2015,13 +2037,19 @@ async function runDuo(state, task, { rounds = 1, roster } = {}) {
 // Typing a CLI's launch name (claude, codex, …) MOVES it into the duo and shows
 // the roster with each member's sign-in state. Then a plain task runs the duo.
 async function enrollInDuo(state, tool) {
+  // Don't enroll a tool that isn't installed — an unusable duo would hijack every
+  // plain message into a dead end. Point the user at /connect instead.
+  if (!resolveToolBinary(tool, tool)) {
+    out('\n' + gold(`  ◆ ${tool}`) + red(' is not installed') + dim(' — run ') + gold('/connect') + dim(` to install + sign in, then type ${tool} again`) + '\n\n')
+    return
+  }
   const already = state.duo.includes(tool)
   if (!already) state.duo.push(tool)
   out('\n' + gold(`  ◆ ${tool} ${already ? 'is already in the duo' : '→ moved into the duo'}`) + '\n')
-  let anyReady = false
+  let readyCount = 0
   for (const t of state.duo) {
-    const s = await cliAuthStatus(t)
-    if (s.installed && s.loggedIn) anyReady = true
+    const s = await cliAuthStatus(t, state)
+    if (s.installed && s.loggedIn) readyCount++
     const mark = s.installed && s.loggedIn ? green('●') : gold('○')
     const note = !s.installed
       ? red('not installed') + dim(' — /connect')
@@ -2030,7 +2058,8 @@ async function enrollInDuo(state, tool) {
         : green('ready') + (s.detail && s.detail !== 'signed in' ? dim(' · ' + s.detail) : '')
     out(`    ${mark} ${t}  ${note}` + '\n')
   }
-  if (anyReady) out(dim(`  type a task and ${state.duo.length > 1 ? 'they work it together' : 'it + Nalu work it'} · add more by name · /solo to disband`) + '\n\n')
+  if (readyCount >= 2) out(dim('  type a task and they work it together · add more by name · /solo to disband') + '\n\n')
+  else if (readyCount === 1) out(dim('  type a task — the signed-in one + Nalu will run it (sign the other in with ') + gold('/connect') + dim(') · /solo to disband') + '\n\n')
   else out(dim('  run ') + gold('/connect') + dim(' to sign in, then type a task') + '\n\n')
 }
 
@@ -2736,10 +2765,12 @@ async function main() {
     // /duo can combine them. Installs what's missing, runs each login flow.
     if (/^\/(connect|login|accounts)(\s|$)/.test(line)) {
       state.interrupted = false
+      state.busy = true // so Ctrl+C during an install/login CANCELS (interruptNow) instead of quitting Nalu
+      try {
       out('\n' + gold('◆ connect your accounts') + dim(' — sign into your OWN Claude + Codex; then /duo combines them') + '\n\n')
       for (const acc of CLI_ACCOUNTS) {
         if (state.interrupted) break
-        let st = await cliAuthStatus(acc.tool)
+        let st = await cliAuthStatus(acc.tool, state)
         if (!st.installed) {
           if (!TTY) {
             out(dim(`  ${acc.name} not installed — run /connect in an interactive terminal, or: npm i -g ${acc.pkg}`) + '\n\n')
@@ -2748,9 +2779,9 @@ async function main() {
           const ans = (await askLine(state, `  ${acc.name} ${dim('(' + acc.tool + ')')} not installed — ${gold('install it?')} ${dim(`(npm i -g ${acc.pkg}) [y/n] `)}`)).trim().toLowerCase()
           if (ans === 'y' || ans === 'yes') {
             const sp = makeSpinner(`installing ${acc.tool}…`)
-            const inst = await capCmd(`npm install -g ${acc.pkg}`, 180000)
+            const inst = await capCmd(`npm install -g ${acc.pkg}`, 180000, state)
             sp.stop()
-            st = await cliAuthStatus(acc.tool)
+            st = await cliAuthStatus(acc.tool, state)
             if (st.installed) out(green(`  ✓ installed ${acc.tool}`) + '\n')
             else {
               const lastErr = inst.out.trim().split('\n').filter(Boolean).pop() || `exited ${inst.code}`
@@ -2768,16 +2799,19 @@ async function main() {
           } else {
             const bin = resolveToolBinary(acc.tool, acc.tool)
             if (bin) await runLoginFlow(state, acc.tool, bin, acc.login)
-            st = await cliAuthStatus(acc.tool)
+            st = await cliAuthStatus(acc.tool, state)
           }
         }
         out((st.loggedIn ? green(`  ✓ ${acc.name}`) + dim(` — ${st.detail}`) : red(`  ✗ ${acc.name}`) + dim(` — not signed in (retry /connect, or run: ${acc.loginCmd})`)) + '\n\n')
       }
       const ready = []
-      for (const a of CLI_ACCOUNTS) if ((await cliAuthStatus(a.tool)).loggedIn) ready.push(a.tool)
+      for (const a of CLI_ACCOUNTS) if ((await cliAuthStatus(a.tool, state)).loggedIn) ready.push(a.tool)
       if (ready.length >= 2) out(gold('◆ both connected') + dim(' — run ') + gold(bold('/duo <task>')) + dim(' and Nalu puts Claude + Codex to work together') + '\n\n')
       else if (ready.length === 1) out(gold(`◆ ${ready[0]} connected`) + dim(` — /duo works now with ${ready[0]}; connect the other for the full duo`) + '\n\n')
       else out(dim('  nothing connected yet — run /connect again when you are ready') + '\n\n')
+      } finally {
+        state.busy = false
+      }
       continue
     }
     if (line === '/plan' || line.startsWith('/plan ')) {
@@ -2840,9 +2874,10 @@ async function main() {
       out(dim(`unknown command ${line.split(' ')[0]} — try /help`) + '\n')
       continue
     }
-    // A duo is enrolled → a plain task goes to the duo (Claude + Codex propose,
-    // Nalu builds). Talk to Nalu alone again with /solo.
-    if (state.duo.length) {
+    // A duo is enrolled AND has a usable (installed) member → a plain task goes
+    // to the duo (Claude + Codex propose, Nalu builds). Talk to Nalu alone with
+    // /solo. If the duo somehow has no installed member, fall through to solo Nalu.
+    if (state.duo.length && state.duo.some((t) => resolveToolBinary(t, t))) {
       await runDuo(state, input)
       continue
     }
