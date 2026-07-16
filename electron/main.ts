@@ -286,7 +286,7 @@ ipcMain.handle('github:login', async (e) => {
     const onData = (d: Buffer) => {
       out += d.toString()
       const m = out.match(/([A-Z0-9]{4}-[A-Z0-9]{4})/)
-      if (m && !codeShown) { codeShown = true; e.sender.send('github:loginCode', m[1]); shell.openExternal('https://github.com/login/device') }
+      if (m && !codeShown) { codeShown = true; try { if (!e.sender.isDestroyed()) e.sender.send('github:loginCode', m[1]) } catch { /* window gone */ } shell.openExternal('https://github.com/login/device') }
       if (/Press Enter/i.test(out) && !enterSent) { enterSent = true; try { p.stdin.write('\n') } catch { /* ignore */ } }
       if (/already logged in/i.test(out)) { try { p.stdin.write('y\n') } catch { /* ignore */ } }
     }
@@ -681,8 +681,15 @@ ipcMain.handle('term:create', async (e, id: string, cwd: string, shellKind?: str
     env: { ...process.env, PATH: `${NALU_BIN}:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || '/usr/bin:/bin'}`, TERM: 'xterm-256color', SHELL: shellPath, BASH_SILENCE_DEPRECATION_WARNING: '1', COLORTERM: 'truecolor' } as Record<string, string>,
   }) as unknown as PtyProc
   shells[id] = proc
-  proc.onData((data) => e.sender.send(`term:data:${id}`, data))
-  proc.onExit(({ exitCode }) => { e.sender.send(`term:exit:${id}`, exitCode); delete shells[id] })
+  // The pty can outlive its window (close a tab / window while a command is still
+  // running). Sending to a destroyed webContents throws "Object has been destroyed"
+  // and crashed the app — so guard every send, and kill the pty when the window dies.
+  const safeSend = (channel: string, payload: unknown) => {
+    try { if (!e.sender.isDestroyed()) e.sender.send(channel, payload) } catch { /* window gone */ }
+  }
+  proc.onData((data) => safeSend(`term:data:${id}`, data))
+  proc.onExit(({ exitCode }) => { safeSend(`term:exit:${id}`, exitCode); delete shells[id] })
+  e.sender.once('destroyed', () => { try { proc.kill() } catch { /* already gone */ } delete shells[id] })
   return true
 })
 
