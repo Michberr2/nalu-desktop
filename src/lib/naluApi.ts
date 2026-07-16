@@ -2,6 +2,8 @@
 // the cloud; keys never live in the desktop binary — only the user's bearer
 // token (stored locally after they sign in on n4lu.ai).
 
+import { getModelSettings } from './settings'
+
 export const API_BASE = 'https://n4lu.ai'
 
 export function getToken(): string {
@@ -155,7 +157,7 @@ export async function streamChat(
       'Content-Type': 'application/json',
       ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
     },
-    body: JSON.stringify({ messages, ...(opts.specialist ? { specialist: opts.specialist } : {}) }),
+    body: JSON.stringify({ messages, ...(opts.specialist ? { specialist: opts.specialist } : {}), ...(() => { const s = getModelSettings(); return { reasoning: s.reasoning, maxTokens: s.maxTokens } })() }),
     signal: opts.signal,
   })
   if (!res.body) throw new Error('no response stream')

@@ -3,6 +3,14 @@ import { X, LogOut, Check } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import wolfUrl from '../lib/wolf'
 import { currentUser, fetchMe, signIn, signUp, signOut, getToken, setToken, type NaluUser } from '../lib/naluApi'
+import { REASONING_LEVELS, REASONING_DESC, getModelSettings, setModelSettings, type ReasoningLevel } from '../lib/settings'
+
+const TOKEN_PRESETS = [
+  { label: '4k', value: 4096 },
+  { label: '8k', value: 8192 },
+  { label: '16k', value: 16000 },
+  { label: '32k', value: 32000 },
+]
 
 export default function SettingsModal() {
   const ws = useWorkspace()
@@ -16,6 +24,9 @@ export default function SettingsModal() {
   const [showToken, setShowToken] = useState(false)
   const [tok, setTok] = useState(getToken())
   const [savedTok, setSavedTok] = useState(false)
+  const [{ reasoning, maxTokens }, setModel] = useState(getModelSettings())
+  const pickReasoning = (r: ReasoningLevel) => setModel(setModelSettings({ reasoning: r }))
+  const pickTokens = (v: number) => setModel(setModelSettings({ maxTokens: v }))
 
   // Confirm the stored session still maps to the same DB user (sync check).
   useEffect(() => { if (getToken()) fetchMe().then((u) => setUser(u)) }, [])
@@ -82,6 +93,42 @@ export default function SettingsModal() {
             <button onClick={async () => { setToken(tok.trim()); setSavedTok(true); setUser(await fetchMe()); setTimeout(() => setSavedTok(false), 1500) }} className="mt-2 w-full rounded-lg border border-glass/[0.12] px-3 py-1.5 text-[12px] text-gold hover:bg-glass/5">{savedTok ? 'Saved ✓' : 'Use token'}</button>
           </div>
         )}
+        <div className="mt-5 mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-dim">Reasoning &amp; capacity</div>
+        <div className="rounded-xl border border-glass/[0.1] bg-panel2 p-3.5 space-y-4">
+          <div>
+            <div className="mb-2 text-[12px] font-medium text-ink">Reasoning level</div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {REASONING_LEVELS.map((lvl) => (
+                <button
+                  key={lvl}
+                  onClick={() => pickReasoning(lvl)}
+                  className={`rounded-lg py-1.5 text-[12px] font-medium capitalize ${reasoning === lvl ? 'bg-gold text-[#15170f]' : 'bg-glass/5 text-dim hover:bg-glass/10'}`}
+                >
+                  {lvl}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] text-dim">{REASONING_DESC[reasoning]}</div>
+          </div>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[12px] font-medium text-ink">Token capacity</span>
+              <span className="text-[11px] tabular-nums text-dim">{maxTokens.toLocaleString()} tokens</span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {TOKEN_PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => pickTokens(p.value)}
+                  className={`rounded-lg py-1.5 text-[12px] font-medium ${maxTokens === p.value ? 'bg-gold text-[#15170f]' : 'bg-glass/5 text-dim hover:bg-glass/10'}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         <div className="mt-4 text-[11px] text-dim">Nalu Desktop 0.1.0 — the Nalu app, on your computer.</div>
       </div>
     </div>
