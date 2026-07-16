@@ -157,7 +157,7 @@ export async function streamChat(
       'Content-Type': 'application/json',
       ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
     },
-    body: JSON.stringify({ messages, ...(opts.specialist ? { specialist: opts.specialist } : {}), ...(() => { const s = getModelSettings(); return { reasoning: s.reasoning, maxTokens: s.maxTokens } })() }),
+    body: JSON.stringify({ messages, ...(opts.specialist ? { specialist: opts.specialist } : {}), ...(() => { const s = getModelSettings(); return { reasoning: s.reasoning, maxTokens: s.maxTokens, webSearch: s.webSearch } })() }),
     signal: opts.signal,
   })
   if (!res.body) throw new Error('no response stream')

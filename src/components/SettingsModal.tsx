@@ -24,9 +24,11 @@ export default function SettingsModal() {
   const [showToken, setShowToken] = useState(false)
   const [tok, setTok] = useState(getToken())
   const [savedTok, setSavedTok] = useState(false)
-  const [{ reasoning, maxTokens }, setModel] = useState(getModelSettings())
+  const [{ reasoning, maxTokens, webSearch, streaming }, setModel] = useState(getModelSettings())
   const pickReasoning = (r: ReasoningLevel) => setModel(setModelSettings({ reasoning: r }))
   const pickTokens = (v: number) => setModel(setModelSettings({ maxTokens: v }))
+  const toggleWeb = () => setModel(setModelSettings({ webSearch: !webSearch }))
+  const toggleStream = () => setModel(setModelSettings({ streaming: !streaming }))
 
   // Confirm the stored session still maps to the same DB user (sync check).
   useEffect(() => { if (getToken()) fetchMe().then((u) => setUser(u)) }, [])
@@ -129,8 +131,34 @@ export default function SettingsModal() {
           </div>
         </div>
 
+        <div className="mt-5 mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-dim">Web &amp; streaming</div>
+        <div className="divide-y divide-glass/[0.08] rounded-xl border border-glass/[0.1] bg-panel2">
+          <ToggleRow title="Web search" desc="Search the live web when it helps" on={webSearch} onToggle={toggleWeb} />
+          <ToggleRow title="Stream replies" desc={streaming ? 'Type out live as they generate' : 'Appear all at once when ready'} on={streaming} onToggle={toggleStream} />
+        </div>
+
         <div className="mt-4 text-[11px] text-dim">Nalu Desktop 0.1.0 — the Nalu app, on your computer.</div>
       </div>
+    </div>
+  )
+}
+
+function ToggleRow({ title, desc, on, onToggle }: { title: string; desc: string; on: boolean; onToggle: () => void }) {
+  return (
+    <div className="flex items-center gap-3 px-3.5 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="text-[12.5px] font-medium text-ink">{title}</div>
+        <div className="text-[11px] text-dim">{desc}</div>
+      </div>
+      <button
+        onClick={onToggle}
+        role="switch"
+        aria-checked={on}
+        aria-label={title}
+        className={`relative h-[22px] w-10 shrink-0 rounded-full transition-colors ${on ? 'bg-gold' : 'bg-glass/20'}`}
+      >
+        <span className={`absolute top-[3px] h-4 w-4 rounded-full bg-white transition-all ${on ? 'left-[21px]' : 'left-[3px]'}`} />
+      </button>
     </div>
   )
 }

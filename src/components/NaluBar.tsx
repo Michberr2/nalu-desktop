@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Check, Square, ChevronDown, X, FileText, FolderTree, Search as SearchIcon, Terminal, Pencil, CheckCircle2, Monitor, MousePointerClick } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import { logTask, streamChat, type WireMessage } from '../lib/naluApi'
+import { getModelSettings } from '../lib/settings'
 
 // A local id so we can log a task's start and finish without waiting on the
 // server round-trip for an id. Time+random keeps it unique per run.
@@ -225,10 +226,12 @@ export default function NaluBar() {
         },
         onDelta: (t) => {
           acc += t
+          if (!getModelSettings().streaming) return // stream OFF → reveal at the end
           setMsgs((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], text: acc }; return c })
           scrollDown()
         },
       })
+      if (!getModelSettings().streaming) { setMsgs((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], text: acc }; return c }); scrollDown() }
       if (file && mode === 'edit') {
         const code = extractCode(acc)
         if (code && code !== file.content) setMsgs((p) => { const c = [...p]; c[c.length - 1] = { ...c[c.length - 1], proposed: code }; return c })

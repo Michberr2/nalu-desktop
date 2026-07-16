@@ -12,8 +12,10 @@ export const REASONING_DESC: Record<ReasoningLevel, string> = {
 export interface ModelSettings {
   reasoning: ReasoningLevel
   maxTokens: number
+  webSearch: boolean
+  streaming: boolean
 }
-export const DEFAULT_SETTINGS: ModelSettings = { reasoning: 'low', maxTokens: 8192 }
+export const DEFAULT_SETTINGS: ModelSettings = { reasoning: 'low', maxTokens: 8192, webSearch: true, streaming: true }
 export const MIN_TOKENS = 256
 export const MAX_TOKENS = 32000
 
@@ -29,6 +31,8 @@ export function getModelSettings(): ModelSettings {
     return {
       reasoning: REASONING_LEVELS.includes(p.reasoning) ? p.reasoning : DEFAULT_SETTINGS.reasoning,
       maxTokens: clamp(Number(p.maxTokens)),
+      webSearch: typeof p.webSearch === 'boolean' ? p.webSearch : DEFAULT_SETTINGS.webSearch,
+      streaming: typeof p.streaming === 'boolean' ? p.streaming : DEFAULT_SETTINGS.streaming,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
