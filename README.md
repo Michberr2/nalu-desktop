@@ -1,44 +1,56 @@
 # Nalu Desktop
 
-A clean, signed, easy-to-download desktop IDE — VS Code / Cursor / Codex-class — that brings the whole Nalu app to your computer and lets you actually code in it. Wolf-head icon, dark + gold, uncluttered.
+Nalu Desktop combines a local coding workspace with Nalu chat, account, team and task features. The desktop, mobile and web apps are separate implementations coordinated through the shared backend.
 
-**Status:** v0.1 — runnable. The IDE shell is built (exact Nalu look & feel).
+**Current source: desktop 0.1.28 / CLI 1.11.4.** The macOS review app runs Electron 44.3.0 and requires macOS 13 or newer. It is Developer ID signed; notarization and public distribution are unfinished. Windows and Linux package targets are configured, but current runtime acceptance has not been established on those platforms.
 
-- 📐 **[Build Plan →](docs/NALU_DESKTOP_PLAN.md)** — the full research-backed plan: stack, layout drawings, design system, AI-agent architecture, code-signing to avoid malware warnings, and a phased roadmap.
+## Run locally
 
-## Run it
+Use Node 22.12 or newer for development.
 
-```bash
-npm install
-npm run dev      # launches the Electron app (Vite dev server + Electron window)
+```sh
+npm ci
+npm run dev
 ```
 
-Build / package:
+Sign in from Settings. Open a project folder to use the editor, terminal and coding tools.
 
-```bash
-npm run build    # typecheck + build renderer, electron main & preload
-npm run dist:mac # signed .dmg   (needs Apple Developer ID — see the plan §7)
-npm run dist:win # signed .msi   (needs Azure Trusted Signing — see the plan §7)
+`NALU_DEV_PROFILE=/absolute/path npm run dev` selects a separate development profile. To isolate the terminal CLI and account files as well, use a separate `HOME`; `node tests/dev-startup.mjs` does both for its acceptance check. Development startup keeps Chromium's sandbox enabled.
+
+## Implemented workflows
+
+- Monaco editor, file tabs, saving, external-change conflicts and recovery of unsaved work and the project folder.
+- File creation, rename and Trash workflows; project search, quick open and command palette.
+- Native interactive terminals with a bundled Nalu CLI, Git operations and GitHub integration.
+- Auto interprets tasks and selects tools, alongside manual Chat, Agent, PC, Edit and AI Terminal modes with approval, Stop, file-bound edit previews and retained drafts. See [mode behavior and verification](docs/MODE_CONTROLS.md).
+- Painted pastel, Focus and Scenic appearances, task starters for building, existing code and everyday work, and direct access to Files, Search, Changes, Activity and Team.
+- A desktop Nalu companion with her original face, an always-visible ball, contact-driven play, grounded digging strokes, conversation, live local/account task status, optional voice, treats and resting animation. Find Nalu in Settings or the tray centers her on the current display. Closing the workspace leaves her available; Quit exits the app. See [desktop experience](docs/DESKTOP_EXPERIENCE.md).
+- Live Chrome preview in PC mode with clickable scaled page images, unique observed element targeting, text replacement, scrolling, approval and Stop. Chrome uses a persistent Nalu profile; sign-ins in your other Chrome profiles are separate.
+- Shared account, team and task activity.
+- Isolated Chromium tools for local website interaction, screenshots and behavioral checks in desktop-hosted CLI sessions.
+- Desktop reasoning, response-limit and web-search preferences synchronize to the terminal CLI. Explicit CLI flags override saved preferences; existing sessions read changes at their next task.
+
+The main renderer is sandboxed, and its OS bridge checks the originating window and document. Settings supports keyboard focus containment, Escape, visible field labels and scrolling within small windows. These are tested boundaries and workflows, not a full security or accessibility audit. Live autonomous coding remains inconsistent; passing tool regressions does not establish reliable completion of unfamiliar applications.
+
+## Verify and package
+
+```sh
+npm run test:cli
+npm run test:ide
+npm run build
+npm run check:sync
+npm run test:browser
 ```
 
-To use Nalu AI in the app: sign in on n4lu.ai, then paste your session token in **Settings** (gear icon).
+Browser and desktop runtime checks require a graphical macOS session. Cross-repo checking requires the sibling `nalumobile` and `train` checkouts.
 
-## What's in v0.1
+```sh
+npm run dist:mac
+npm run dist:win
+```
 
-- **Exact Nalu look & feel** — byte-for-byte the train dark+gold theme tokens; wolf-head branding.
-- **File-tree explorer** (open any folder), **Monaco editor** with tabs and a matching Nalu theme, dirty-dot + ⌘S save.
-- **Integrated terminal** (real shell) — ⌘\`.
-- **⌘K command palette** (cmdk).
-- **AI coding panel** — Chat / Agent / Edit modes streaming from Nalu's specialists; **Edit** proposes a full-file change you Apply or Reject.
-- **Hardened Electron** — contextIsolation on, nodeIntegration off, all OS access through an audited preload bridge.
+Distribution requires the appropriate platform signing and notarization credentials. The current signed macOS review package and its byte hashes, signature assessment, runtime logs and screenshots are under `review-build/release-0.1.28-complete/`. Gatekeeper reports that package as unnotarized. See the [runtime upgrade evidence](docs/RUNTIME_UPGRADE.md) for dependency, development and packaged-app verification.
 
-Next (per the plan): LSP intelligence, cross-file search, git, node-pty for full terminal interactivity, agent mode (edit→run→verify), and code-signing wired into CI.
+See [verification evidence](docs/IDE_VERIFICATION.md), the [full quality goal](docs/QUALITY_GOAL.md), [CLI documentation](cli/README.md), and the original [build plan](docs/NALU_DESKTOP_PLAN.md). No 10/10 readiness or competitor-parity claim follows from the current test results.
 
-## The short version
-
-- **Electron** shell (Chromium + Node) — same engine as VS Code and Cursor.
-- **Reuses the existing Nalu web app** (chat, all specialists, Studio, Map, AutoPilot) via a shared package — one codebase, two shells (web + desktop).
-- **Real IDE:** Monaco editor, file tree, tabs, split panes, integrated terminal, command palette, git.
-- **AI coding agent** (read files, edit with diffs, run commands, approve/undo) powered by Nalu's own models.
-- **Signed + notarized** on macOS and Windows so it downloads and installs with **no malware / "unidentified developer" warnings**.
-- **~$220/yr** total to ship download-clean on macOS + Windows + Linux; everything else is free/open-source.
+The Mac app now downloads signed updates and restarts automatically when work is safe to pause. Older builds need one manual upgrade. See [desktop updates](docs/DESKTOP_UPDATES.md) for release assets, verification and rollout requirements.

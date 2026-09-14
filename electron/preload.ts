@@ -3,7 +3,24 @@ import { contextBridge, ipcRenderer } from 'electron'
 // The ONLY bridge between the renderer and the OS. Everything is an explicit,
 // audited call — no raw node access leaks into the web layer.
 const api = {
+  updates: {
+    get: (): Promise<import('./updateController').DesktopUpdateState> => ipcRenderer.invoke('updates:get'),
+    check: (): Promise<void> => ipcRenderer.invoke('updates:check'),
+    activity: (blocked: boolean, idleMs: number): void => ipcRenderer.send('updates:activity', blocked, idleMs),
+    onState: (fn: (state: import('./updateController').DesktopUpdateState) => void) => { const listener = (_event: unknown, state: import('./updateController').DesktopUpdateState) => fn(state); ipcRenderer.on('updates:state', listener); return () => ipcRenderer.removeListener('updates:state', listener) },
+  },
+  companion: {
+    find: (): Promise<import('./companionPreload').CompanionState> => ipcRenderer.invoke('companion:find'),
+    get: (): Promise<import('./companionPreload').CompanionState> => ipcRenderer.invoke('companion:get'),
+    set: (settings: Partial<import('./companion').CompanionSettings>): Promise<import('./companionPreload').CompanionState> => ipcRenderer.invoke('companion:set', settings),
+    activity: (source: 'assistant' | 'chats', busy: boolean, detail?: Partial<import('./companion').CompanionActivity>): void => ipcRenderer.send('companion:activity', source, busy, detail),
+    onTask: (fn: (prompt: string) => void) => { const listener = (_event: unknown, prompt: string) => fn(prompt); ipcRenderer.on('companion:task', listener); return () => { ipcRenderer.removeListener('companion:task', listener) } },
+  },
+  closeWorkspace: (): Promise<boolean> => ipcRenderer.invoke('workspace:close'),
+  loadWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:load'),
+  saveWorkspace: (snapshot: string): Promise<void> => ipcRenderer.invoke('workspace:save', snapshot),
   openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
+  chooseSavePath: (defaultPath: string): Promise<string | null> => ipcRenderer.invoke('dialog:saveFile', defaultPath),
   readDir: (dir: string): Promise<Array<{ name: string; path: string; dir: boolean }>> =>
     ipcRenderer.invoke('fs:readDir', dir),
   readFile: (file: string): Promise<string> => ipcRenderer.invoke('fs:readFile', file),
@@ -14,13 +31,15 @@ const api = {
   rename: (from: string, to: string): Promise<boolean> => ipcRenderer.invoke('fs:rename', from, to),
   search: (root: string, query: string): Promise<Array<{ file: string; rel: string; line: number; text: string }>> =>
     ipcRenderer.invoke('fs:search', root, query),
-  exec: (cwd: string, command: string): Promise<{ code: number; output: string }> => ipcRenderer.invoke('sys:exec', cwd, command),
+  cancelSearch: (): void => ipcRenderer.send('fs:cancelSearch'),
+  exec: (cwd: string, command: string, id?: string): Promise<{ code: number; output: string }> => ipcRenderer.invoke('sys:exec', cwd, command, id),
+  cancelExec: (id: string): void => ipcRenderer.send('sys:cancel', id),
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
 
   git: {
     status: (cwd: string): Promise<{ repo: boolean; branch?: string; files?: Array<{ x: string; y: string; path: string }> }> =>
       ipcRenderer.invoke('git:status', cwd),
-    diff: (cwd: string, file?: string): Promise<string> => ipcRenderer.invoke('git:diff', cwd, file),
+    diff: (cwd: string, file?: string, staged?: boolean): Promise<string> => ipcRenderer.invoke('git:diff', cwd, file, staged),
     stage: (cwd: string, file: string): Promise<boolean> => ipcRenderer.invoke('git:stage', cwd, file),
     unstage: (cwd: string, file: string): Promise<boolean> => ipcRenderer.invoke('git:unstage', cwd, file),
     commit: (cwd: string, msg: string): Promise<string> => ipcRenderer.invoke('git:commit', cwd, msg),
@@ -46,7 +65,15 @@ const api = {
 
   // Computer control — the AI operates the whole Mac.
   pc: {
-    permissions: (prompt: boolean): Promise<{ accessibility: boolean; screen: boolean }> => ipcRenderer.invoke('pc:permissions', prompt),
+    preview: (): Promise<import('./chromeBrowser').BrowserPreview> => ipcRenderer.invoke('pc:preview'),
+    onPreview: (fn: (state: import('./chromeBrowser').BrowserPreview) => void) => { const listener = (_event: unknown, state: import('./chromeBrowser').BrowserPreview) => fn(state); ipcRenderer.on('pc:preview', listener); return () => ipcRenderer.removeListener('pc:preview', listener) },
+    browserShow: (): Promise<{ok:boolean;out:string}> => ipcRenderer.invoke('pc:browserShow'),
+    browserCancel: (): Promise<void> => ipcRenderer.invoke('pc:browserCancel'),
+    previewClick: (x:number,y:number): Promise<{ok:boolean;out:string}> => ipcRenderer.invoke('pc:previewClick',x,y),
+    webSnapshot: (): Promise<{ok:boolean;out:string}> => ipcRenderer.invoke('pc:webSnapshot'),
+    webFill: (selector:string,text:string): Promise<{ok:boolean;out:string}> => ipcRenderer.invoke('pc:webFill',selector,text),
+    webScroll: (x:number,y:number): Promise<{ok:boolean;out:string}> => ipcRenderer.invoke('pc:webScroll',x,y),
+    permissions: (prompt: boolean): Promise<{ accessibility: boolean; screen: boolean; platform: string }> => ipcRenderer.invoke('pc:permissions', prompt),
     openSettings: (pane: string): Promise<boolean> => ipcRenderer.invoke('pc:openSettings', pane),
     screenshot: (): Promise<string> => ipcRenderer.invoke('pc:screenshot'),
     screenSize: (): Promise<{ w: number; h: number }> => ipcRenderer.invoke('pc:screenSize'),

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
-import { X, LogOut, Check } from 'lucide-react'
+import CompanionSettings from './CompanionSettings'
+import { useEffect, useRef, useState } from 'react'
+import { X, LogOut, Check, Phone } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import wolfUrl from '../lib/wolf'
-import { currentUser, fetchMe, signIn, signUp, signOut, getToken, setToken, type NaluUser } from '../lib/naluApi'
+import { currentUser, fetchMe, signIn, signUp, signOut, getToken, setToken, syncCliConfig, updateProfile, type NaluUser } from '../lib/naluApi'
 import { REASONING_LEVELS, REASONING_DESC, getModelSettings, setModelSettings, type ReasoningLevel } from '../lib/settings'
 
 const TOKEN_PRESETS = [
@@ -14,6 +15,17 @@ const TOKEN_PRESETS = [
 
 export default function SettingsModal() {
   const ws = useWorkspace()
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const pointerStartedOutside = useRef(false)
+  useEffect(() => {
+    const dialog = dialogRef.current
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    dialog?.showModal()
+    return () => {
+      if (dialog?.open) dialog.close()
+      if (previousFocus?.isConnected) previousFocus.focus()
+    }
+  }, [])
   const [user, setUser] = useState<NaluUser | null>(currentUser())
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
@@ -24,14 +36,23 @@ export default function SettingsModal() {
   const [showToken, setShowToken] = useState(false)
   const [tok, setTok] = useState(getToken())
   const [savedTok, setSavedTok] = useState(false)
+  const [desktopVersion, setDesktopVersion] = useState('')
   const [{ reasoning, maxTokens, webSearch, streaming }, setModel] = useState(getModelSettings())
   const pickReasoning = (r: ReasoningLevel) => setModel(setModelSettings({ reasoning: r }))
   const pickTokens = (v: number) => setModel(setModelSettings({ maxTokens: v }))
   const toggleWeb = () => setModel(setModelSettings({ webSearch: !webSearch }))
   const toggleStream = () => setModel(setModelSettings({ streaming: !streaming }))
+  useEffect(() => { syncCliConfig() }, [reasoning, maxTokens, webSearch])
+  useEffect(() => { void window.nalu.appVersion().then(setDesktopVersion).catch(() => {}) }, [])
 
   // Confirm the stored session still maps to the same DB user (sync check).
-  useEffect(() => { if (getToken()) fetchMe().then((u) => setUser(u)) }, [])
+  useEffect(() => {
+    let active = true
+    if (getToken()) void fetchMe().then(u => { if (active) setUser(u) }).catch(error => {
+      if (active) setError(error instanceof Error ? error.message : 'Could not check your account. Your saved session has been kept.')
+    })
+    return () => { active = false }
+  }, [])
 
   const submit = async () => {
     setBusy(true); setError('')
@@ -39,20 +60,54 @@ export default function SettingsModal() {
       const r = mode === 'signin' ? await signIn(email.trim(), password) : await signUp(email.trim(), password, name.trim() || undefined)
       if (r.ok && r.user) setUser(r.user)
       else setError(r.error || 'Could not sign in.')
-    } catch { setError('Network error — check your connection.') }
+    } catch (error) { setError(error instanceof Error ? error.message : 'Network error — check your connection.') }
     finally { setBusy(false) }
   }
 
   const doSignOut = () => { signOut(); setUser(null); setTok(''); setEmail(''); setPassword('') }
 
+  // Phone number (for the phone-call feature) — edited inline in the account card.
+  const [phone, setPhone] = useState(user?.phone || '')
+  const [phoneState, setPhoneState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [phoneErr, setPhoneErr] = useState('')
+  useEffect(() => { setPhone(user?.phone || '') }, [user?.phone])
+  const savePhone = async () => {
+    setPhoneState('saving'); setPhoneErr('')
+    try {
+      const r = await updateProfile({ phone: phone.trim() })
+      if (r.ok && r.user) { setUser(r.user); setPhoneState('saved'); setTimeout(() => setPhoneState('idle'), 1500) }
+      else { setPhoneState('error'); setPhoneErr(r.error || 'Could not save.') }
+    } catch { setPhoneState('error'); setPhoneErr('Could not reach Nalu. Your phone number has not been saved; try again.') }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => ws.setSettingsOpen(false)}>
-      <div className="w-full max-w-md animate-fadeIn rounded-2xl border border-glass/[0.12] bg-panel p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-ink">Settings</h2>
-          <button onClick={() => ws.setSettingsOpen(false)} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={16} /></button>
+    <dialog ref={dialogRef} aria-labelledby="settings-title"
+      className="m-auto max-h-[calc(100dvh_-_2rem)] w-[calc(100vw_-_2rem)] max-w-md overflow-y-auto rounded-2xl border border-glass/[0.12] bg-panel p-0 text-ink shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+      onCancel={(e) => { e.preventDefault(); ws.setSettingsOpen(false) }}
+      onKeyDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        pointerStartedOutside.current = e.target === e.currentTarget && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom)
+      }}
+      onClick={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        if (pointerStartedOutside.current && e.target === e.currentTarget && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom)) ws.setSettingsOpen(false)
+        pointerStartedOutside.current = false
+      }}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-glass/[0.08] bg-panel px-5 py-4">
+          <h2 id="settings-title" className="text-[15px] font-semibold text-ink">Settings</h2>
+          <button aria-label="Close settings" onClick={() => ws.setSettingsOpen(false)} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={16} /></button>
         </div>
 
+        <div className="p-5">
+        <fieldset className="mb-6"><legend className="mb-2 text-[12px] font-semibold text-ink">Appearance</legend>
+          <div className="appearance-options">
+            <button type="button" aria-pressed={ws.appearance === 'pastel'} onClick={() => ws.setAppearance('pastel')}><span className="appearance-swatch pastel-swatch" style={{backgroundImage:`url(${import.meta.env.BASE_URL}bg/pastel-painting.png)`,backgroundSize:'cover',backgroundPosition:'center'}}/>Pastel<span>Softly painted scenery</span></button>
+            <button type="button" aria-pressed={ws.appearance === 'focus'} onClick={() => ws.setAppearance('focus')}><span className="appearance-swatch focus-swatch"/>Focus<span>Calm dark workspace</span></button>
+            <button type="button" aria-pressed={ws.appearance === 'scenic'} onClick={() => ws.setAppearance('scenic')}><span className="appearance-swatch scenic-swatch"/>Scenic<span>Nalu’s glass backdrop</span></button>
+          </div>
+        </fieldset>
+        <CompanionSettings/>
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-dim">Nalu account</div>
 
         {user ? (
@@ -66,6 +121,33 @@ export default function SettingsModal() {
               <span className="flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-medium text-green-400"><Check size={10} /> synced</span>
             </div>
             <p className="mt-2.5 text-[11.5px] leading-relaxed text-dim">Signed in as the same account as n4lu.ai — same AI, specialists, quotas, and data.</p>
+
+            {/* Phone number — so Nalu can call you, and recognize you when you call in. */}
+            <div className="mt-3 border-t border-glass/[0.08] pt-3">
+              <label htmlFor="nalu-phone" className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-ink"><Phone size={12} /> Phone number</label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="nalu-phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && savePhone()}
+                  type="tel"
+                  placeholder="+1 415 555 1234"
+                  className="min-w-0 flex-1 rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[13px] text-ink outline-none placeholder:text-dim focus:border-gold/50"
+                />
+                <button
+                  onClick={savePhone}
+                  disabled={phoneState === 'saving' || (phone.trim() || '') === (user.phone || '')}
+                  className="flex items-center gap-1 rounded-lg bg-gold/90 px-3 py-2 text-[12px] font-medium text-[#15170f] hover:bg-gold disabled:opacity-40"
+                >
+                  {phoneState === 'saving' ? 'Saving…' : phoneState === 'saved' ? <><Check size={12} /> Saved</> : 'Save'}
+                </button>
+              </div>
+              {phoneState === 'error'
+                ? <div role="alert" className="mt-1.5 text-[11px] text-red-400">{phoneErr}</div>
+                : <div className="mt-1.5 text-[11px] leading-relaxed text-dim">Include your country code (e.g. +1). Nalu calls this when you ask, and knows it's you when you call in.</div>}
+            </div>
+
             <button onClick={doSignOut} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-glass/[0.1] px-3 py-2 text-[12px] text-dim hover:bg-glass/5 hover:text-ink"><LogOut size={13} /> Sign out</button>
           </div>
         ) : (
@@ -73,12 +155,20 @@ export default function SettingsModal() {
             <p className="mb-3 text-[12px] leading-relaxed text-dim">Sign in with your n4lu.ai email and password. It's the same account — everything syncs.</p>
             <div className="space-y-2">
               {mode === 'signup' && (
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name (optional)" className="w-full rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[13px] text-ink outline-none placeholder:text-dim focus:border-gold/50" />
+                <div>
+                  <label htmlFor="nalu-name" className="mb-1 block text-[12px] text-ink">Your name (optional)</label>
+                  <input id="nalu-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className="w-full rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[13px] text-ink outline-none focus:border-gold/50" />
+                </div>
               )}
-              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email or username" autoComplete="username" className="w-full rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[13px] text-ink outline-none placeholder:text-dim focus:border-gold/50" />
-              <input value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} type="password" placeholder="Password" autoComplete="current-password" className="w-full rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[13px] text-ink outline-none placeholder:text-dim focus:border-gold/50" />
+              <div>
+                <label htmlFor="nalu-email" className="mb-1 block text-[12px] text-ink">Email or username</label>
+                <input id="nalu-email" value={email} onChange={(e) => setEmail(e.target.value)} type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} className="w-full rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[13px] text-ink outline-none focus:border-gold/50" />
+              </div>
+              <div>
+                <label htmlFor="nalu-password" className="mb-1 block text-[12px] text-ink">Password</label>
+                <input id="nalu-password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !busy && email && password && submit()} type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} className="w-full rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[13px] text-ink outline-none focus:border-gold/50" />
+              </div>
             </div>
-            {error && <div className="mt-2 text-[11.5px] text-red-400">{error}</div>}
             <button onClick={submit} disabled={busy || !email || !password} className="mt-3 w-full rounded-lg bg-gold/90 px-3 py-2 text-[13px] font-medium text-[#15170f] hover:bg-gold disabled:opacity-50">
               {busy ? 'Signing in…' : mode === 'signin' ? 'Sign in' : 'Create account'}
             </button>
@@ -87,12 +177,18 @@ export default function SettingsModal() {
             </button>
           </>
         )}
+        {error && <div role="alert" className="mt-2 text-[11.5px] text-red-400">{error}</div>}
 
         <button onClick={() => setShowToken((s) => !s)} className="mt-4 text-[10.5px] text-dim hover:text-ink">{showToken ? 'Hide' : 'Advanced:'} paste a session token</button>
         {showToken && (
           <div className="mt-2">
-            <input value={tok} onChange={(e) => setTok(e.target.value)} placeholder="nalu session token" className="w-full rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[12px] text-ink outline-none placeholder:text-dim focus:border-gold/50" />
-            <button onClick={async () => { setToken(tok.trim()); setSavedTok(true); setUser(await fetchMe()); setTimeout(() => setSavedTok(false), 1500) }} className="mt-2 w-full rounded-lg border border-glass/[0.12] px-3 py-1.5 text-[12px] text-gold hover:bg-glass/5">{savedTok ? 'Saved ✓' : 'Use token'}</button>
+            <label htmlFor="nalu-session-token" className="mb-1 block text-[12px] text-ink">Session token</label>
+            <input id="nalu-session-token" type="password" autoComplete="off" value={tok} onChange={(e) => setTok(e.target.value)} className="w-full rounded-lg border border-glass/[0.1] bg-panel2 px-3 py-2 text-[12px] text-ink outline-none focus:border-gold/50" />
+            <button onClick={async () => {
+              setToken(tok.trim()); setUser(currentUser()); setError('')
+              try { setUser(await fetchMe()); setSavedTok(true); setTimeout(() => setSavedTok(false), 1500) }
+              catch (error) { setError(error instanceof Error ? error.message : 'Could not check this token. Try again.') }
+            }} className="mt-2 w-full rounded-lg border border-glass/[0.12] px-3 py-1.5 text-[12px] text-gold hover:bg-glass/5">{savedTok ? 'Saved ✓' : 'Use token'}</button>
           </div>
         )}
         <div className="mt-5 mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-dim">Reasoning &amp; capacity</div>
@@ -103,6 +199,7 @@ export default function SettingsModal() {
               {REASONING_LEVELS.map((lvl) => (
                 <button
                   key={lvl}
+                  aria-pressed={reasoning === lvl}
                   onClick={() => pickReasoning(lvl)}
                   className={`rounded-lg py-1.5 text-[12px] font-medium capitalize ${reasoning === lvl ? 'bg-gold text-[#15170f]' : 'bg-glass/5 text-dim hover:bg-glass/10'}`}
                 >
@@ -121,6 +218,7 @@ export default function SettingsModal() {
               {TOKEN_PRESETS.map((p) => (
                 <button
                   key={p.value}
+                  aria-pressed={maxTokens === p.value}
                   onClick={() => pickTokens(p.value)}
                   className={`rounded-lg py-1.5 text-[12px] font-medium ${maxTokens === p.value ? 'bg-gold text-[#15170f]' : 'bg-glass/5 text-dim hover:bg-glass/10'}`}
                 >
@@ -137,9 +235,9 @@ export default function SettingsModal() {
           <ToggleRow title="Stream replies" desc={streaming ? 'Type out live as they generate' : 'Appear all at once when ready'} on={streaming} onToggle={toggleStream} />
         </div>
 
-        <div className="mt-4 text-[11px] text-dim">Nalu Desktop 0.1.0 — the Nalu app, on your computer.</div>
-      </div>
-    </div>
+        <div className="mt-4 text-[11px] text-dim">Nalu Desktop{desktopVersion ? ` ${desktopVersion}` : ''} — the Nalu app, on your computer.</div>
+        </div>
+    </dialog>
   )
 }
 

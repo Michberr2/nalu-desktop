@@ -1,10 +1,11 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App'
+const Companion = React.lazy(() => import('./companion/Companion'))
+const App = React.lazy(() => import('./App'))
 import './globals.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <React.Suspense fallback={null}>{location.hash === '#companion' ? <Companion /> : <App />}</React.Suspense>
   </React.StrictMode>,
 )

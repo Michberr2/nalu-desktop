@@ -17,5 +17,5 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["node"]
   },
-  "include": ["src", "electron", "vite.config.ts"]
+  "include": ["src", "electron", "vite.config.mts"]
 }

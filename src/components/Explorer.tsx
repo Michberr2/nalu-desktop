@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { ChevronRight, ChevronDown, FolderOpen } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import FileIcon from './FileIcon'
+import CreateEntryDialog from './CreateEntryDialog'
+import TrashEntryDialog from './TrashEntryDialog'
 
 type Node = { name: string; path: string; dir: boolean }
 type Menu = { x: number; y: number; node: Node } | null
 
 // dirname helper (renderer has no node path module)
-const dirOf = (p: string) => p.slice(0, p.lastIndexOf('/')) || '/'
+const dirOf = (p: string) => p.slice(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))) || '/'
 
 function TreeNode({ node, depth, onMenu }: { node: Node; depth: number; onMenu: (m: Menu) => void }) {
   const ws = useWorkspace()
@@ -16,7 +18,12 @@ function TreeNode({ node, depth, onMenu }: { node: Node; depth: number; onMenu: 
 
   // reload children when this node's subtree is refreshed (create/delete/rename)
   useEffect(() => {
-    if (open && node.dir) window.nalu.readDir(node.path).then(setChildren)
+    let cancelled = false
+    if (open && node.dir) void window.nalu.readDir(node.path).then(
+      entries => { if (!cancelled) setChildren(entries) },
+      () => { if (!cancelled) setChildren([]) },
+    )
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.refreshKey])
 
@@ -59,31 +66,38 @@ export default function Explorer() {
   const ws = useWorkspace()
   const [roots, setRoots] = useState<Node[]>([])
   const [menu, setMenu] = useState<Menu>(null)
+  const [renameNode, setRenameNode] = useState<Node | null>(null)
+  const [renameName, setRenameName] = useState('')
+  const [renameError, setRenameError] = useState('')
+  const [renaming, setRenaming] = useState(false)
+  const [creation, setCreation] = useState<{ directory: string; kind: 'file' | 'folder' } | null>(null)
+  const [trashNode, setTrashNode] = useState<Node | null>(null)
 
   useEffect(() => {
-    if (ws.folder) window.nalu.readDir(ws.folder).then(setRoots)
+    let cancelled = false
+    if (ws.folder) void window.nalu.readDir(ws.folder).then(
+      entries => { if (!cancelled) setRoots(entries) },
+      () => { if (!cancelled) setRoots([]) },
+    )
     else setRoots([])
+    return () => { cancelled = true }
   }, [ws.folder, ws.refreshKey])
 
-  // ---- file operations (simple prompt-driven, then refresh the tree) ----
-  const newFile = async (dir: string) => {
-    const name = window.prompt('New file name')?.trim()
-    if (!name) return
-    try { const p = await window.nalu.createFile(dir, name); ws.refresh(); await ws.openFile(p, name) } catch { alert('Could not create file') }
-  }
-  const newFolder = async (dir: string) => {
-    const name = window.prompt('New folder name')?.trim()
-    if (!name) return
-    try { await window.nalu.mkdir(dir, name); ws.refresh() } catch { alert('Could not create folder') }
-  }
-  const rename = async (node: Node) => {
-    const name = window.prompt('Rename to', node.name)?.trim()
-    if (!name || name === node.name) return
-    try { await window.nalu.rename(node.path, dirOf(node.path) + '/' + name); ws.refresh() } catch { alert('Could not rename') }
-  }
-  const del = async (node: Node) => {
-    if (!window.confirm(`Delete ${node.name}?`)) return
-    try { await window.nalu.del(node.path); ws.refresh() } catch { alert('Could not delete') }
+  const rename = async () => {
+    if (!renameNode || renaming) return
+    const name = renameName.trim()
+    if (!name || name === '.' || name === '..' || /[\\/\0]/.test(name)) {
+      setRenameError('Enter a file or folder name without path separators.')
+      return
+    }
+    if (name === renameNode.name) { setRenameNode(null); return }
+    setRenaming(true); setRenameError('')
+    try {
+      const separator = renameNode.path.includes('\\') ? '\\' : '/'
+      await ws.renamePath(renameNode.path, dirOf(renameNode.path).replace(/[\\/]$/, '') + separator + name)
+      setRenameNode(null)
+    } catch (error) { setRenameError(error instanceof Error ? error.message : String(error)) }
+    finally { setRenaming(false) }
   }
 
   if (!ws.folder) {
@@ -111,14 +125,34 @@ export default function Explorer() {
           onClick={(e) => e.stopPropagation()}
         >
           {menu.node.dir && <>
-            <MenuItem label="New File" onClick={() => { void newFile(menu.node.path); setMenu(null) }} />
-            <MenuItem label="New Folder" onClick={() => { void newFolder(menu.node.path); setMenu(null) }} />
+            <MenuItem label="New File" onClick={() => { setCreation({directory:menu.node.path,kind:'file'}); setMenu(null) }} />
+            <MenuItem label="New Folder" onClick={() => { setCreation({directory:menu.node.path,kind:'folder'}); setMenu(null) }} />
             <div className="my-1 border-t border-glass/[0.08]" />
           </>}
-          <MenuItem label="Rename" onClick={() => { void rename(menu.node); setMenu(null) }} />
-          <MenuItem label="Delete" danger onClick={() => { void del(menu.node); setMenu(null) }} />
+          <MenuItem label="Rename" onClick={() => { setRenameNode(menu.node); setRenameName(menu.node.name); setRenameError(''); setMenu(null) }} />
+          <MenuItem label="Move to Trash" danger onClick={() => { setTrashNode(menu.node); setMenu(null) }} />
         </div>
       )}
+      {renameNode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={e => e.stopPropagation()}>
+          <form role="dialog" aria-modal="true" aria-labelledby="rename-title"
+            onSubmit={e => { e.preventDefault(); void rename() }}
+            onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape' && !renaming) setRenameNode(null) }}
+            className="w-[360px] rounded-xl border border-glass/[0.12] bg-panel p-5 shadow-2xl">
+            <h2 id="rename-title" className="mb-3 text-sm font-medium text-ink">Rename {renameNode.dir ? 'folder' : 'file'}</h2>
+            <input aria-label="New name" autoFocus value={renameName} disabled={renaming}
+              onFocus={e => e.target.select()} onChange={e => setRenameName(e.target.value)}
+              className="w-full rounded-md border border-glass/[0.15] bg-black/20 px-3 py-2 text-sm text-ink outline-none focus:border-gold/60" />
+            {renameError && <p role="alert" className="mt-2 text-xs text-red-300">{renameError}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" disabled={renaming} onClick={() => setRenameNode(null)} className="rounded-md px-3 py-1.5 text-xs text-dim">Cancel</button>
+              <button type="submit" disabled={renaming} className="rounded-md bg-gold/90 px-3 py-1.5 text-xs text-[#15170f] disabled:opacity-50">{renaming ? 'Renaming…' : 'Rename'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+      {creation && <CreateEntryDialog {...creation} onClose={() => setCreation(null)} />}
+      {trashNode && <TrashEntryDialog target={trashNode} onClose={() => setTrashNode(null)} />}
     </div>
   )
 }

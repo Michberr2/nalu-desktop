@@ -1,7 +1,4 @@
-// Lightweight update check for the desktop app. Because the app is ad-hoc
-// signed (silent Squirrel auto-update needs a paid Developer ID), we CHECK the
-// latest published release and, if there's a newer one, notify the user with a
-// one-click download — so an already-installed app still gets updates.
+// Download-page fallback for platforms without the signed macOS updater.
 
 const RELEASES_API = 'https://api.github.com/repos/Michberr2/nalu-desktop/releases/latest'
 export const DOWNLOAD_PAGE = 'https://n4lu.ai/download.html'

@@ -1,6 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import { GitBranch, RefreshCw, Plus, Minus, ChevronDown, X, Github, Download, DownloadCloud, LogOut, Search } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
+import { CommitDrafts } from '../lib/commitDrafts'
+
+const drafts = new CommitDrafts(() => localStorage)
 
 type GFile = { x: string; y: string; path: string }
 type Status = { repo: boolean; branch?: string; files?: GFile[] }
@@ -15,7 +18,7 @@ export default function GitPanel() {
   const [stat, setStat] = useState({ added: 0, removed: 0 })
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
-  const [diff, setDiff] = useState<{ path: string; text: string } | null>(null)
+  const [diff, setDiff] = useState<{ path: string; text: string; staged: boolean } | null>(null)
   const [gh, setGh] = useState<Gh>({ loggedIn: false, login: '', hasGh: true })
   const [remote, setRemote] = useState('')
   const [loginCode, setLoginCode] = useState('')
@@ -23,27 +26,90 @@ export default function GitPanel() {
   const [showClone, setShowClone] = useState(false)
   const [repoQuery, setRepoQuery] = useState('')
   const [note, setNote] = useState('')
+  const [draftError, setDraftError] = useState('')
+  const persistDraft = (folder: string, value: string) => {
+    try { drafts.write(folder, value); setDraftError('') }
+    catch (error) { setDraftError(`Commit draft could not be backed up: ${String(error)}`) }
+  }
 
-  const loadGit = useCallback(async () => {
-    if (!ws.folder) { setSt({ repo: false }); setRemote(''); return }
-    const [s, n, r] = await Promise.all([window.nalu.git.status(ws.folder), window.nalu.git.stat(ws.folder), window.nalu.git.remote(ws.folder)])
-    setSt(s); setStat(n); setRemote(r)
+  const gitLoad = useRef(0)
+  const projectEpoch = useRef(0)
+  const projectOperation = useRef<symbol | null>(null)
+  const currentFolder = useRef(ws.folder); currentFolder.current = ws.folder
+  useLayoutEffect(() => {
+    gitLoad.current++; projectEpoch.current++; projectOperation.current = null
+    setBusy(false); setDraftError('')
+    try {
+      setMsg(ws.folder ? drafts.read(ws.folder) : '')
+      if (ws.folder && drafts.error(ws.folder)) setDraftError(`Commit draft could not be backed up: ${drafts.error(ws.folder)}`)
+    }
+    catch (error) { setMsg(''); setDraftError(`Commit draft could not be loaded: ${String(error)}`) }
+    setDiff(null); setSt({ repo: false }); setStat({ added: 0, removed: 0 }); setRemote(''); setNote('')
+    return () => { gitLoad.current++; projectEpoch.current++ }
   }, [ws.folder])
-  const loadGh = useCallback(async () => { setGh(await window.nalu.github.status()) }, [])
+  const loadGit = useCallback(async () => {
+    if (currentFolder.current !== ws.folder) return
+    const request = ++gitLoad.current
+    if (!ws.folder) { setSt({ repo: false }); setRemote(''); return }
+    try {
+      const [s, n, r] = await Promise.all([window.nalu.git.status(ws.folder), window.nalu.git.stat(ws.folder), window.nalu.git.remote(ws.folder)])
+      if (request !== gitLoad.current) return
+      setSt(s); setStat(n); setRemote(r)
+    } catch (error) { if (request === gitLoad.current) setNote(String(error)) }
+  }, [ws.folder])
+  const loadGh = useCallback(async () => {
+    try { setGh(await window.nalu.github.status()) } catch (error) { setNote(String(error)) }
+  }, [])
+  useEffect(() => () => { gitLoad.current++ }, [loadGit])
 
   useEffect(() => { void loadGit() }, [loadGit, ws.refreshKey])
   useEffect(() => { void loadGh() }, [loadGh])
   useEffect(() => { const t = setInterval(() => void loadGit(), 2000); return () => clearInterval(t) }, [loadGit])
   useEffect(() => window.nalu.github.onLoginCode((c) => setLoginCode(c)), [])
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!diff || !ws.folder) return
-    const t = setInterval(async () => { const txt = await window.nalu.git.diff(ws.folder!, diff.path); if (txt) setDiff((d) => (d && d.path === diff.path ? { ...d, text: txt } : d)) }, 2000)
-    return () => clearInterval(t)
-  }, [diff, ws.folder])
+    let cancelled = false, pending = false
+    const selectedPath = diff.path, selectedStaged = diff.staged, folder = ws.folder
+    const refreshDiff = async () => {
+      if (pending) return
+      pending = true
+      try {
+        const text = (await window.nalu.git.diff(folder, selectedPath, selectedStaged)) || '(no diff)'
+        if (!cancelled) setDiff(d => d && d.path === selectedPath && d.staged === selectedStaged && d.text !== text ? { ...d, text } : d)
+      } catch (error) {
+        if (!cancelled) setDiff(d => d && d.path === selectedPath && d.staged === selectedStaged ? { ...d, text: `Could not load diff: ${String(error)}` } : d)
+      }
+      finally { pending = false }
+    }
+    void refreshDiff()
+    const t = setInterval(() => void refreshDiff(), 2000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [diff?.path, diff?.staged, ws.folder])
 
   const staged = (st.files || []).filter((f) => f.x !== ' ' && f.x !== '?')
   const changed = (st.files || []).filter((f) => f.x === ' ' || f.x === '?' || f.y !== ' ')
-  const act = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn() } finally { setBusy(false); await loadGit() } }
+  const runProjectOperation = async (work: () => Promise<{ note: string; clearDraft?: string }>, initial = '') => {
+    if (projectOperation.current) return
+    const token = Symbol(), epoch = projectEpoch.current, folder = ws.folder
+    projectOperation.current = token
+    const current = () => projectEpoch.current === epoch && projectOperation.current === token
+    setBusy(true); setNote(initial)
+    try {
+      const result = await work()
+      if (!current()) return
+      setNote(result.note)
+      if (result.clearDraft !== undefined && folder && drafts.read(folder) === result.clearDraft) {
+        persistDraft(folder, '')
+        setMsg(value => value === result.clearDraft ? '' : value)
+      }
+    } catch (error) { if (current()) setNote(String(error)) }
+    finally {
+      if (current()) { projectOperation.current = null; setBusy(false); await loadGit() }
+    }
+  }
+  const act = (fn: () => Promise<unknown>) => runProjectOperation(async () => ({
+    note: await fn() === false ? 'Git operation failed. Check the repository and try again.' : '',
+  }))
 
   const signIn = async () => {
     setBusy(true); setNote('Opening GitHub to authorize…'); setLoginCode('')
@@ -63,27 +129,37 @@ export default function GitPanel() {
       else setNote(r.out || 'Clone failed.')
     } finally { setBusy(false) }
   }
-  const pull = async () => { if (!ws.folder) return; setBusy(true); setNote('Pulling…'); try { const r = await window.nalu.git.pull(ws.folder); setNote(r.ok ? 'Up to date.' : r.out) } finally { setBusy(false); await loadGit() } }
-  const showDiff = async (f: GFile) => { if (ws.folder) setDiff({ path: f.path, text: (await window.nalu.git.diff(ws.folder, f.path)) || '(no diff)' }) }
+  const pull = async () => {
+    if (!ws.folder) return
+    const folder = ws.folder
+    await runProjectOperation(async () => {
+      const result = await window.nalu.git.pull(folder)
+      return { note: result.ok ? 'Up to date.' : result.out }
+    }, 'Pulling…')
+  }
+  const showDiff = (f: GFile, staged: boolean) => { if (ws.folder) setDiff({ path: f.path, staged, text: 'Loading diff…' }) }
   const commit = async (push: boolean) => {
     if (!msg.trim() || !ws.folder) return
-    setBusy(true); setNote(push ? 'Committing & pushing…' : 'Committing…')
-    try {
-      if (push) { const r = await window.nalu.git.commitPush(ws.folder, msg.trim()); setNote(r.ok ? 'Pushed to GitHub.' : (r.push || 'Push failed.')) }
-      else { await window.nalu.git.commit(ws.folder, msg.trim()); setNote('Committed.') }
-      setMsg('')
-    } finally { setBusy(false); await loadGit() }
+    const folder = ws.folder, draft = msg
+    await runProjectOperation(async () => {
+      if (push) {
+        const result = await window.nalu.git.commitPush(folder, draft.trim())
+        return { note: result.ok ? 'Pushed to GitHub.' : result.push || 'Push failed.', clearDraft: draft }
+      }
+      await window.nalu.git.commit(folder, draft.trim())
+      return { note: 'Committed.', clearDraft: draft }
+    }, push ? 'Committing & pushing…' : 'Committing…')
   }
 
   // ---- GitHub account bar (always visible) ----
   const AccountBar = (
-    <div className="flex items-center gap-2 border-b border-glass/[0.08] px-3 py-2">
+    <div className="git-account-bar flex items-center gap-2 border-b border-glass/[0.08] px-3 py-2">
       <Github size={14} className="shrink-0 text-ink" />
       {gh.loggedIn ? (
         <>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-ink">{gh.login}</span>
-          <button onClick={openClone} title="Clone a repository" className="flex items-center gap-1 rounded-md bg-glass/10 px-2 py-1 text-[11px] text-ink hover:bg-glass/20"><DownloadCloud size={12} /> Clone</button>
-          <button onClick={() => void signOut()} title="Sign out" className="rounded-md p-1 text-dim hover:bg-glass/10 hover:text-ink"><LogOut size={12} /></button>
+          <span className="git-account-name min-w-0 flex-1 truncate text-[12px] text-ink" title={gh.login}>{gh.login}</span>
+          <button onClick={openClone} title="Clone a repository" className="git-clone-button flex items-center gap-1 rounded-md bg-glass/10 px-2 py-1 text-[11px] text-ink hover:bg-glass/20"><DownloadCloud size={12} /> Clone</button>
+          <button onClick={() => void signOut()} title="Sign out" className="git-signout-button rounded-md p-1 text-dim hover:bg-glass/10 hover:text-ink"><LogOut size={12} /></button>
         </>
       ) : (
         <button onClick={() => void signIn()} disabled={busy} className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-gold/90 px-2 py-1 text-[11px] font-medium text-[#15170f] hover:bg-gold disabled:opacity-50">
@@ -105,7 +181,8 @@ export default function GitPanel() {
           <div className="mt-1 text-[10px] text-dim">The page opened in your browser. Waiting for you to authorize…</div>
         </div>
       )}
-      {note && <div className="mx-3 mt-2 truncate text-[11px] text-dim">{note}</div>}
+      {note && <div role="status" className="mx-3 mt-2 whitespace-pre-wrap break-words text-[11px] text-dim">{note}</div>}
+      {draftError && <div role="alert" className="mx-3 mt-2 whitespace-pre-wrap break-words text-[11px] text-red-300">{draftError}</div>}
 
       {!ws.folder ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
@@ -120,7 +197,7 @@ export default function GitPanel() {
       ) : !st.repo ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <p className="text-[12px] text-dim">This folder isn't a git repository.</p>
-          <button onClick={() => ws.folder && void act(() => window.nalu.git.initRepo(ws.folder!))} className="flex items-center gap-1.5 rounded-lg bg-glass/10 px-3 py-1.5 text-[12px] text-ink hover:bg-glass/20"><GitBranch size={13} /> Initialize repository</button>
+          <button disabled={busy} onClick={() => ws.folder && void act(() => window.nalu.git.initRepo(ws.folder!))} className="flex items-center gap-1.5 rounded-lg bg-glass/10 px-3 py-1.5 text-[12px] text-ink hover:bg-glass/20"><GitBranch size={13} /> Initialize repository</button>
         </div>
       ) : (
         <>
@@ -140,8 +217,8 @@ export default function GitPanel() {
             </span>
           </div>
           <div className="px-3 pb-2">
-            <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={2} placeholder="Commit message" className="w-full resize-none rounded-lg border border-glass/[0.1] bg-panel2 px-2 py-1.5 text-[12px] text-ink outline-none placeholder:text-dim focus:border-gold/40" />
-            <div className="mt-1.5 flex gap-1.5">
+            <textarea value={msg} onChange={(e) => { setMsg(e.target.value); if (ws.folder) persistDraft(ws.folder, e.target.value) }} rows={2} placeholder="Commit message" className="w-full resize-none rounded-lg border border-glass/[0.1] bg-panel2 px-2 py-1.5 text-[12px] text-ink outline-none placeholder:text-dim focus:border-gold/40" />
+            <div className="git-commit-actions mt-1.5 flex gap-1.5">
               <button onClick={() => void commit(true)} disabled={!msg.trim() || busy} className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-gold/90 px-3 py-1.5 text-[12px] font-medium text-[#15170f] hover:bg-gold disabled:opacity-40">Commit &amp; Push <ChevronDown size={12} /></button>
               <button onClick={() => void commit(false)} disabled={!msg.trim() || staged.length === 0 || busy} title="Commit only (staged)" className="rounded-lg border border-glass/[0.12] px-3 py-1.5 text-[12px] text-ink hover:bg-glass/10 disabled:opacity-40">Commit</button>
             </div>
@@ -150,11 +227,11 @@ export default function GitPanel() {
           <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
             {staged.length > 0 && <>
               <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-dim">Staged</div>
-              {staged.map((f) => <Row key={'s' + f.path} f={f} isStaged act={act} showDiff={showDiff} ws={ws} />)}
+              {staged.map((f) => <Row key={'s' + f.path} f={f} isStaged act={act} showDiff={showDiff} ws={ws} busy={busy} />)}
             </>}
             <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-dim">Changes</div>
             {changed.length === 0 && <div className="px-1.5 py-2 text-[11px] text-dim">No changes</div>}
-            {changed.map((f) => <Row key={'c' + f.path} f={f} isStaged={false} act={act} showDiff={showDiff} ws={ws} />)}
+            {changed.map((f) => <Row key={'c' + f.path} f={f} isStaged={false} act={act} showDiff={showDiff} ws={ws} busy={busy} />)}
           </div>
         </>
       )}
@@ -191,7 +268,7 @@ export default function GitPanel() {
         <div className="absolute inset-0 z-40 flex flex-col rounded-2xl bg-panel">
           <div className="flex items-center justify-between border-b border-glass/[0.08] px-3 py-2">
             <span className="truncate text-[12px] font-medium text-ink">{diff.path}</span>
-            <button onClick={() => setDiff(null)} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={14} /></button>
+            <button title="Close diff" onClick={() => setDiff(null)} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={14} /></button>
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-2 font-mono text-[11px] leading-relaxed">
             {diff.text.split('\n').map((line, i) => (
@@ -204,12 +281,12 @@ export default function GitPanel() {
   )
 }
 
-function Row({ f, isStaged, act, showDiff, ws }: { f: GFile; isStaged: boolean; act: (fn: () => Promise<unknown>) => Promise<void>; showDiff: (f: GFile) => void; ws: ReturnType<typeof useWorkspace> }) {
+function Row({ f, isStaged, act, showDiff, ws, busy }: { busy: boolean; f: GFile; isStaged: boolean; act: (fn: () => Promise<unknown>) => Promise<void>; showDiff: (f: GFile, staged: boolean) => void; ws: ReturnType<typeof useWorkspace> }) {
   return (
     <div className="group flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-glass/[0.06]">
       <span className="w-3 shrink-0 text-center text-[10px] font-bold text-gold">{f.x !== ' ' && f.x !== '?' ? f.x : f.y === '?' ? 'U' : f.y}</span>
-      <button onClick={() => showDiff(f)} className="min-w-0 flex-1 truncate text-left text-[12px] text-dim hover:text-ink">{f.path}</button>
-      <button onClick={() => ws.folder && void act(() => isStaged ? window.nalu.git.unstage(ws.folder!, f.path) : window.nalu.git.stage(ws.folder!, f.path))} title={isStaged ? 'Unstage' : 'Stage'} className="shrink-0 rounded p-0.5 text-dim opacity-0 hover:bg-glass/10 hover:text-ink group-hover:opacity-100">
+      <button title={`${isStaged ? 'Review staged' : 'Review unstaged'} ${f.path}`} onClick={() => showDiff(f, isStaged)} className="min-w-0 flex-1 truncate text-left text-[12px] text-dim hover:text-ink">{f.path}</button>
+      <button disabled={busy} onClick={() => ws.folder && void act(() => isStaged ? window.nalu.git.unstage(ws.folder!, f.path) : window.nalu.git.stage(ws.folder!, f.path))} title={isStaged ? 'Unstage' : 'Stage'} className="shrink-0 rounded p-0.5 text-dim opacity-0 hover:bg-glass/10 hover:text-ink group-hover:opacity-100">
         {isStaged ? <Minus size={12} /> : <Plus size={12} />}
       </button>
     </div>

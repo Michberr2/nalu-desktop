@@ -1,6 +1,6 @@
 {
   "name": "nalu-desktop",
-  "version": "0.1.14",
+  "version": "0.1.29",
   "description": "Nalu Desktop — a clean, signed IDE that brings the whole Nalu app to your computer.",
   "author": "Nalu (n4lu.ai)",
   "main": "dist-electron/main.js",
@@ -8,37 +8,47 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:cli": "node --test cli/*.test.mjs",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "test:ide": "node --test tests/*.test.mjs",
+    "test:browser": "npm run build && node --test tests/browser-worker.integration.mjs",
+    "test:ide:smoke": "npm run build && electron tests/ide-smoke.cjs",
+    "check:sync": "node scripts/check-nalu-sync.mjs",
+    "watch:sync": "node scripts/check-nalu-sync.mjs --watch",
+    "predev": "npm run check:sync",
+    "build:checked": "npm run check:sync && npm run build"
   },
   "dependencies": {
-    "node-pty": "^1.1.0",
     "@monaco-editor/react": "^4.6.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "cmdk": "^1.0.4",
+    "electron-updater": "6.8.9",
     "lucide-react": "^0.451.0",
-    "monaco-editor": "^0.55.0",
+    "monaco-editor": "0.56.0",
+    "node-pty": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@electron/rebuild": "^4.1.0"
+    "three": "^0.184.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "4.2.0",
     "@types/node": "^22.7.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@types/three": "^0.184.1",
+    "@vitejs/plugin-react": "6.1.1",
     "autoprefixer": "^10.4.20",
-    "electron": "^32.1.2",
-    "electron-builder": "^25.1.7",
-    "postcss": "^8.4.47",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3",
+    "postcss": "8.5.28",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8",
-    "vite-plugin-electron": "^0.28.8",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vite": "8.3.0",
+    "vite-plugin-electron": "1.1.2"
   },
   "build": {
     "appId": "ai.n4lu.desktop",
@@ -49,7 +59,9 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "!node_modules/node-pty/bin/**",
+      "!node_modules/node-pty/prebuilds/**"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -62,8 +74,14 @@
         "teamId": "98N9B637F3"
       },
       "target": [
-        "dmg"
-      ]
+        "dmg",
+        "zip"
+      ],
+      "minimumSystemVersion": "13.0.0",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Talk to your Nalu desktop companion when you press the microphone button."
+      },
+      "artifactName": "Nalu-${version}-mac-${arch}.${ext}"
     },
     "dmg": {
       "writeUpdateInfo": false,
@@ -79,7 +97,8 @@
           "y": 190,
           "type": "file"
         }
-      ]
+      ],
+      "artifactName": "Nalu-mac.dmg"
     },
     "win": {
       "icon": "build/wolf.ico",
@@ -94,6 +113,28 @@
         "deb"
       ],
       "category": "Development"
+    },
+    "extraResources": [
+      {
+        "from": "cli/nalu.mjs",
+        "to": "cli/nalu.mjs"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Michberr2",
+        "repo": "nalu-desktop",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "3.4.15"
     }
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

@@ -1,34 +1,42 @@
-import { useEffect, useState } from 'react'
-import { Download, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Download } from 'lucide-react'
+import type { DesktopUpdateState } from '../../electron/updateController'
+import { useWorkspace } from '../lib/store'
+import { reportUpdateActivity } from '../lib/updateActivity'
 import { checkForUpdate, DOWNLOAD_PAGE, type UpdateInfo } from '../lib/update'
 
-// Slim banner under the title bar: appears when a newer release is published so
-// an already-installed app can update with one click.
 export default function UpdateBanner() {
-  const [info, setInfo] = useState<UpdateInfo | null>(null)
-  const [dismissed, setDismissed] = useState(false)
-
+  const ws = useWorkspace()
+  const [state, setState] = useState<DesktopUpdateState>({ phase: 'idle' })
+  const [manual, setManual] = useState<UpdateInfo | null>(null)
+  const [now, setNow] = useState(Date.now())
+  const unsafe = useRef(true)
+  unsafe.current = !!ws.recoveryError || ws.tabs.some(tab => tab.dirty || !!tab.saveError || tab.diskConflict !== undefined)
+  useEffect(() => reportUpdateActivity(window.nalu.updates.activity, () => unsafe.current || !!document.querySelector('dialog[open]') ||
+    Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="password"]'))
+      .some(input => !input.readOnly && !input.closest('.monaco-editor') && !!input.value)), [])
   useEffect(() => {
     let alive = true
-    const run = () => checkForUpdate().then((u) => { if (alive && u && localStorage.getItem('nalu-skip-update') !== u.latest) setInfo(u) })
-    run()
-    const t = setInterval(run, 6 * 60 * 60 * 1000) // re-check every 6h
-    return () => { alive = false; clearInterval(t) }
+    const accept = (next: DesktopUpdateState) => { if (alive) setState(next) }
+    const unsubscribe = window.nalu.updates.onState(accept)
+    void window.nalu.updates.get().then(accept)
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => { alive = false; unsubscribe(); clearInterval(timer) }
   }, [])
-
-  if (!info || dismissed) return null
-  return (
-    <div className="no-drag mx-2 mb-2 flex items-center gap-3 rounded-xl border border-gold/40 bg-gold/[0.12] px-3 py-2 text-[12px] backdrop-blur">
-      <span className="flex-1 text-ink">
-        <b className="text-gold">Nalu {info.latest}</b> is available <span className="text-dim">(you have {info.current})</span>
-      </span>
-      <button
-        onClick={() => window.open(DOWNLOAD_PAGE, '_blank')}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-gold/90 px-2.5 py-1 text-[11px] font-medium text-[#15170f] hover:bg-gold"
-      >
-        <Download size={12} /> Download update
-      </button>
-      <button onClick={() => { localStorage.setItem('nalu-skip-update', info.latest); setDismissed(true) }} title="Skip this version" className="rounded p-1 text-dim hover:text-ink"><X size={13} /></button>
-    </div>
-  )
+  useEffect(() => {
+    if (state.phase !== 'disabled') return
+    let alive = true
+    const check = () => { void checkForUpdate().then(info => { if (alive) setManual(info) }) }
+    check(); const timer = setInterval(check, 30 * 60 * 1000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [state.phase])
+  if (state.phase === 'disabled') return manual ? <div className="desktop-update-banner" role="status"><span>Nalu {manual.latest} is available.</span><a href={DOWNLOAD_PAGE} target="_blank" rel="noreferrer"><Download size={13}/> Download update</a></div> : null
+  if (['idle', 'checking'].includes(state.phase)) return null
+  return <div className="desktop-update-banner" role="status">
+    <span>{state.phase === 'downloading' ? `Downloading Nalu ${state.version} · ${state.percent ?? 0}%`
+      : state.phase === 'installing' ? 'Restarting Nalu to finish your update…'
+      : state.restartAt ? `Nalu ${state.version} restarts in ${Math.max(0, Math.ceil((state.restartAt - now) / 1000))}s. Keep working to postpone.`
+      : `${state.version ? `Nalu ${state.version} is ready. ` : ''}${state.message || ''}`}</span>
+    {state.phase === 'error' && <button onClick={() => void window.nalu.updates.check()}>Retry update</button>}
+  </div>
 }
