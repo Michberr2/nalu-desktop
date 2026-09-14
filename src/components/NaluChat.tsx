@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, ArrowUp, Square, FileText, Table, Presentation, Palette, Film, Loader2, MessageSquare } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
-import { loadChats, saveChats, streamChat, type Chat, type ChatMsg, type WireMessage } from '../lib/naluApi'
+import { getToken, loadChats, saveChats, streamChat, type Chat, type ChatMsg, type WireMessage } from '../lib/naluApi'
 import wolfUrl from '../lib/wolf'
 import MessageContent from './MessageContent'
 
@@ -53,6 +53,9 @@ export default function NaluChat() {
   const ws = useWorkspace()
   const [chats, setChats] = useState<Chat[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncError, setSyncError] = useState('')
+  const unsaved = useRef(false)
+  const saveVersion = useRef(0)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -71,16 +74,17 @@ export default function NaluChat() {
   useEffect(() => {
     let alive = true
     setLoading(true)
-    loadChats().then((cs) => { if (!alive) return; setChats(cs); setActiveId((id) => id || cs[0]?.id || null); setLoading(false) })
+    loadChats().then((cs) => { if (!alive) return; setChats(cs); setActiveId((id) => id || cs[0]?.id || null) }).catch(e => { if (alive) setSyncError(e instanceof Error ? e.message : 'Could not load your chats.') }).finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [ws.user])
+  }, [ws.user?.id])
 
   // SHARED: pull the latest chats from the server whenever the window regains
   // focus, so anything you did on n4lu.ai (or another device) shows up here.
   useEffect(() => {
-    const onFocus = () => { if (!busy) loadChats().then((cs) => { if (cs.length) setChats((cur) => (JSON.stringify(cur.map((c) => c.id)) !== JSON.stringify(cs.map((c) => c.id)) || cs.some((c, i) => (c.messages?.length || 0) !== (cur[i]?.messages?.length || 0)) ? cs : cur)) }) }
+    let alive = true
+    const onFocus = () => { if (!busyRef.current && !unsaved.current) loadChats().then((cs) => { if (!alive || busyRef.current || unsaved.current) return; setSyncError(''); if (cs.length) setChats((cur) => (JSON.stringify(cur.map((c) => c.id)) !== JSON.stringify(cs.map((c) => c.id)) || cs.some((c, i) => (c.messages?.length || 0) !== (cur[i]?.messages?.length || 0)) ? cs : cur)) }).catch(e => { if (alive) setSyncError(e instanceof Error ? e.message : 'Could not load your chats.') }) }
     window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    return () => { alive = false; window.removeEventListener('focus', onFocus) }
   }, [busy])
 
   useLayoutEffect(() => { const el=promptRef.current; if(el){el.style.height='auto';el.style.height=`${Math.min(160, Math.max(48, el.scrollHeight))}px`} }, [input])
@@ -98,8 +102,11 @@ export default function NaluChat() {
 
   const send = async () => {
     const content = input.trim()
+    const accountToken = getToken()
     if (!content || busyRef.current) return
+    const revision = ++saveVersion.current
     busyRef.current = true
+    unsaved.current = true
     setChatTask({ task: content, status: 'Writing a reply in Chats.' })
     setInput('')
     let chat = active
@@ -125,8 +132,21 @@ export default function NaluChat() {
       setChatTask({ task: content, status: ctrl.signal.aborted ? 'Stopped.' : acc.slice(0,300) || 'Reply finished.' })
       busyRef.current = false; setBusy(false); abortRef.current = null
       // persist back to the SAME DB the website reads (artifacts preserved server-side)
-      setChats((cur) => { void saveChats(cur); return cur })
+      setChats((cur) => {
+        if (getToken() === accountToken) void saveChats(cur, accountToken).then(() => { if (saveVersion.current === revision) { unsaved.current = false; setSyncError('') } }).catch(e => { if (saveVersion.current === revision) setSyncError(e instanceof Error ? e.message : 'Your chats could not be saved.') })
+        return cur
+      })
     }
+  }
+
+  const retrySync = async () => {
+    setLoading(true)
+    try {
+      if (unsaved.current) { await saveChats(chats); unsaved.current = false }
+      else { const latest = await loadChats(); setChats(latest); setActiveId(id => id || latest[0]?.id || null) }
+      setSyncError('')
+    } catch (e) { setSyncError(e instanceof Error ? e.message : 'Could not sync your chats.') }
+    finally { setLoading(false) }
   }
 
   return (
@@ -157,6 +177,7 @@ export default function NaluChat() {
       {/* conversation */}
       <div className="chat-conversation">
         <div className="chat-conversation-heading"><div><span className="text-dim text-[10px] uppercase tracking-widest">Nalu conversations</span><h1>{active?.title || 'A fresh conversation'}</h1></div><span className="text-xs text-dim">{busy ? 'Responding…' : ws.user ? 'Your Nalu account' : 'Sign in to save your chats'}</span></div>
+        {syncError && <div role="alert" className="mx-4 mt-2 rounded-lg border border-gold/30 p-3 text-xs text-ink">{syncError} <button className="ml-2 underline" disabled={loading || busy} onClick={() => void retrySync()}>Retry sync</button></div>}
         <div ref={scrollRef} className="chat-messages space-y-5">
           {!active || active.messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center">

@@ -60,3 +60,40 @@ test('a delayed account check cannot sign back in after sign-out',async()=>{
  const pending=client.api.fetchMe();client.api.signOut();resolve(json({user}))
  assert.equal(await pending,null);assert.equal(client.storage.get('nalu-user'),undefined)
 })
+
+test('Cloudflare history is loaded through the public account API, including large Unicode messages',async()=>{
+ const chats=[{id:'cloudflare-chat',title:'A wolf and a unicorn',messages:[{role:'user',content:'🦄🐺'.repeat(700000)}]}]
+ const client=loadApi(async(url,req)=>{assert.equal(url,'https://n4lu.ai/api/data');assert.equal(req.headers.Authorization,'Bearer saved-session');return json({data:{'nalu-chats':JSON.stringify(chats)}})})
+ cached(client);assert.equal(JSON.stringify(await client.api.loadChats()),JSON.stringify(chats))
+})
+for(const [label,response] of [['failed',()=>json({error:'Offline'},503)],['malformed',()=>json({ok:true})],['invalid history',()=>json({data:{'nalu-chats':'broken'}})]]) test(`${label} history is an error, never a successful empty history`,async()=>{
+ const client=loadApi(response);cached(client);await assert.rejects(client.api.loadChats());assert.equal(client.storage.get('nalu-token'),'saved-session')
+})
+test('a delayed saved-data response cannot cross an account switch',async()=>{
+ let finish;const client=loadApi(()=>new Promise(resolve=>{finish=resolve}));cached(client)
+ const pending=client.api.loadChats();client.api.setToken('another-account');finish(json({data:{'nalu-chats':'[]'}}))
+ await assert.rejects(pending,/account changed/)
+})
+test('large desktop saves compress without truncation and use the same Cloudflare merge contract as the web',async()=>{
+ const {gunzipSync}=await import('node:zlib'),requests=[]
+ const client=loadApi(async(url,request)=>{assert.equal(url,'https://n4lu.ai/api/data');requests.push(request);return json({ok:true})});cached(client)
+ const chats=[{id:'large',messages:[{role:'assistant',content:'Unicorn 🦄 wolf 🐺 '.repeat(300000)}],design:{title:'Keep the artifact'}}]
+ await client.api.saveChats(chats)
+ assert.equal(requests.length,1)
+ const request=requests[0],body=JSON.parse(request.body)
+ assert.ok(Buffer.byteLength(request.body)<3500000);assert.equal(body.action,'setMany');assert.equal(body.encoding,'gzip-base64')
+ assert.equal(request.headers.Authorization,'Bearer saved-session')
+ const entries=JSON.parse(gunzipSync(Buffer.from(body.compressedEntries,'base64')))
+ assert.equal(entries['nalu-chats'],JSON.stringify(chats))
+})
+test('separate save batches stop if the account changes between requests',async()=>{
+ let calls=0,client
+ client=loadApi(async()=>{calls++;client.api.setToken('another-account');return json({ok:true})});cached(client)
+ const chats=[1,2,3].map(id=>({id:String(id),messages:[{role:'user',content:'x'.repeat(2000000)}]}))
+ await assert.rejects(client.api.saveChats(chats),/account changed/);assert.equal(calls,1)
+})
+test('rejected and malformed save receipts are surfaced for retry',async()=>{
+ for(const response of [()=>json({error:'Offline'},503),()=>json({error:'Rejected'},409),()=>json({})]){
+  const client=loadApi(response);cached(client);await assert.rejects(client.api.saveChats([{id:'keep',messages:[]}]))
+ }
+})

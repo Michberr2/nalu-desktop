@@ -6,7 +6,7 @@ import ts from 'typescript'
 export function loadApi(fetchImpl) {
   const storage = new Map(), synced = []
   const context = vm.createContext({
-    fetch: fetchImpl, Response, TextDecoder, DOMException, AbortController,
+    fetch: fetchImpl, Response, TextDecoder, TextEncoder, Blob, CompressionStream, btoa, DOMException, AbortController,
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key,value) => storage.set(key,String(value)), removeItem: key => storage.delete(key) },
     window: { nalu: { cliSync: async data => { synced.push(data) } } },
   })

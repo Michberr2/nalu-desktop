@@ -6,6 +6,7 @@ const compile = file => ts.transpileModule(fs.readFileSync(new URL(file, import.
 const url = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
 const source = compile('../src/lib/naluApi.ts')
   .replace("'./settings'", JSON.stringify(url(compile('../src/lib/settings.ts'))))
+  .replace("'./syncPayload'", JSON.stringify(url(compile('../src/lib/syncPayload.ts'))))
   .replace("'./chatStream'", JSON.stringify(url(compile('../src/lib/chatStream.ts'))))
 const { syncCliConfig } = await import(url(source))
 test('desktop sync preserves standalone defaults until the user saves preferences, including explicit sign-out', () => {

@@ -2,7 +2,7 @@
 
 Nalu Desktop combines a local coding workspace with Nalu chat, account, team and task features. The desktop, mobile and web apps are separate implementations coordinated through the shared backend.
 
-**Current source: desktop 0.1.28 / CLI 1.11.4.** The macOS review app runs Electron 44.3.0 and requires macOS 13 or newer. It is Developer ID signed; notarization and public distribution are unfinished. Windows and Linux package targets are configured, but current runtime acceptance has not been established on those platforms.
+**Current source: desktop 0.1.30 / CLI 1.11.4.** The macOS app runs Electron 44.3.0 and requires macOS 13 or newer. It is Developer ID signed and notarized by Apple. Accounts, chats and remote tasks use the shared Cloudflare-backed API at n4lu.ai. The new database starts fresh; create an account there and use it across the web and desktop. Windows and Linux package targets are configured, but current runtime acceptance has not been established on those platforms.
 
 ## Run locally
 

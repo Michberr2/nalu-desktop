@@ -20,7 +20,7 @@ const gatekeeper = run('spctl', ['--assess', '--type', 'execute', '--verbose=4',
 const staple = run('xcrun', ['stapler', 'validate', app])
 const signed = verification.status === 0 && metadata.status === 0
   && metadata.output.includes('Identifier=' + manifest.build.appId + '\n')
-  && metadata.output.includes('TeamIdentifier=' + manifest.build.mac.notarize.teamId + '\n')
+  && metadata.output.includes('TeamIdentifier=' + manifest.build.mac.identity.match(/\(([A-Z0-9]+)\)$/)[1] + '\n')
   && metadata.output.includes('Authority=Developer ID Application:') && metadata.output.includes('(runtime)')
 const result = { checkedAt: new Date().toISOString(), app, signed, gatekeeperAccepted: gatekeeper.status === 0,
   stapleValidated: staple.status === 0, verification, metadata, gatekeeper, staple,

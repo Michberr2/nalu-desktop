@@ -1,7 +1,7 @@
 {
   "name": "nalu-desktop",
-  "version": "0.1.29",
-  "description": "Nalu Desktop — a clean, signed IDE that brings the whole Nalu app to your computer.",
+  "version": "0.1.30",
+  "description": "Nalu Desktop \u2014 a clean, signed IDE that brings the whole Nalu app to your computer.",
   "author": "Nalu (n4lu.ai)",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -70,9 +70,7 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": {
-        "teamId": "98N9B637F3"
-      },
+      "notarize": true,
       "target": [
         "dmg",
         "zip"
@@ -81,7 +79,8 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Talk to your Nalu desktop companion when you press the microphone button."
       },
-      "artifactName": "Nalu-${version}-mac-${arch}.${ext}"
+      "artifactName": "Nalu-${version}-mac-${arch}.${ext}",
+      "identity": "Michael Berry II (98N9B637F3)"
     },
     "dmg": {
       "writeUpdateInfo": false,
@@ -127,7 +126,8 @@
         "repo": "nalu-desktop",
         "releaseType": "release"
       }
-    ]
+    ],
+    "forceCodeSigning": true
   },
   "overrides": {
     "monaco-editor": {

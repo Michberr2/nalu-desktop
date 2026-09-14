@@ -4,7 +4,10 @@
 
 import { consumeChatStream } from './chatStream'
 import { getModelSettings } from './settings'
+import { syncBodies } from './syncPayload'
 
+// Cloudflare D1/R2 are accessed through this authenticated shared API.
+// Database credentials belong on the server, never in the desktop application.
 export const API_BASE = 'https://n4lu.ai'
 
 export function getToken(): string {
@@ -124,35 +127,45 @@ export type ChatMsg = { role: 'user' | 'assistant'; content: string; reasoning?:
 export type Chat = { id: string; title: string; messages: ChatMsg[]; createdAt: number; projectId?: string }
 
 export async function loadUserData(): Promise<Record<string, unknown>> {
-  if (!getToken()) return {}
+  const token = getToken()
+  if (!token) return {}
   const res = await fetch(`${API_BASE}/api/data`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-    body: JSON.stringify({ action: 'load', token: getToken() }),
-  }).catch(() => null)
-  if (!res || !res.ok) return {}
-  const d = await res.json().catch(() => ({})) as { data?: Record<string, unknown> }
-  return d.data || {}
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action: 'load', token }),
+  })
+  const d = await res.json().catch(() => null)
+  if (getToken() !== token) throw new Error('Your account changed. Reload your chats.')
+  if (!res.ok || !d?.data || typeof d.data !== 'object' || Array.isArray(d.data)) {
+    throw new Error(res.status >= 500 ? ACCOUNT_UNAVAILABLE : d?.error || 'Could not load your saved chats. Please try again.')
+  }
+  return d.data
 }
 
-// nalu-chats is stored (double-encoded) as a JSON string in the DB; parse robustly.
 export async function loadChats(): Promise<Chat[]> {
   const data = await loadUserData()
   let raw = data['nalu-chats']
-  if (typeof raw === 'string') { try { raw = JSON.parse(raw) } catch { raw = [] } }
-  const arr = Array.isArray(raw) ? raw : []
-  return arr.filter((c) => c && c.id) as Chat[]
+  if (raw === undefined || raw === null) return []
+  if (typeof raw === 'string') raw = JSON.parse(raw)
+  if (!Array.isArray(raw)) throw new Error('Could not read your saved chats. Please try again.')
+  return raw.filter((c) => c && c.id) as Chat[]
 }
 
-// Save chats back — the server guard preserves every artifact, so continuing a
-// conversation from the desktop never drops docs made on the web.
-export async function saveChats(chats: Chat[]): Promise<void> {
-  if (!getToken()) return
-  await fetch(`${API_BASE}/api/data`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-    body: JSON.stringify({ action: 'set', token: getToken(), key: 'nalu-chats', value: JSON.stringify(chats) }),
-  }).catch(() => {})
+// Match the website's bounded, compressed sync requests. The shared server
+// merges chats and preserves artifacts; an omitted chat never means deletion.
+export async function saveChats(chats: Chat[], token = getToken()): Promise<void> {
+  if (!token) return
+  const bodies = await syncBodies({ 'nalu-chats': JSON.stringify(chats) }, token)
+  for (const body of bodies) {
+    if (getToken() !== token) throw new Error('Your account changed. This save was stopped.')
+    const res = await fetch(`${API_BASE}/api/data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body,
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok || data?.ok !== true) throw new Error(res.status >= 500 ? ACCOUNT_UNAVAILABLE : data?.error || 'Your chats could not be saved. Please retry.')
+  }
 }
 
 // ---- AutoPilot ledger: log IDE tasks to the shared per-user backend so they show

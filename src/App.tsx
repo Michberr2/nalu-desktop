@@ -73,7 +73,7 @@ function Shell() {
       {/* Two interchangeable faces: NALU (website-like chat + your Studio
           conversations) and IDE (files + editor + terminal + Nalu prompt bar). */}
       <div className="chats-workspace min-h-0 flex-1" style={{ display: ws.appMode === 'nalu' ? 'flex' : 'none' }}>
-          <NaluChat />
+          <NaluChat key={ws.user?.id || 'signed-out'} />
       </div>
         <main aria-label="Workspace" className="ide-workspace" style={{ display: ws.appMode === 'ide' ? undefined : 'none' }}>
           {ws.filesOpen && <FilesDrawer />}

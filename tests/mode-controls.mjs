@@ -39,7 +39,7 @@ const idle=()=>wait(()=>js(`!!document.querySelector('[aria-label="Send prompt"]
 const approval=()=>wait(()=>js(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Approve')`),'approval')
 const screenshot=async name=>{await js('new Promise(resolve=>setTimeout(resolve,180))');fs.writeFileSync(path.join(scratch,name+'.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'))}
 const networkErrors=[]
-let authOutage=false
+let authOutage=false, chatSaveFailure=false
 async function paused(event){
  const {requestId,request}=event.params
  try{
@@ -57,13 +57,15 @@ async function paused(event){
     body='event: delta\ndata: '+JSON.stringify({text})+'\n\nevent: done\ndata: {"ok":true}\n\n'
     headers[0].value='text/event-stream'
    }else if(request.url.endsWith('/api/auth')&&authOutage){responseCode=500;body=JSON.stringify({ok:false,error:'Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.'})}
+   else if(data.action==='load')body=JSON.stringify({data:{}})
+   else if(data.action==='setMany'&&chatSaveFailure){responseCode=503;body=JSON.stringify({error:'Temporary fixture outage'})}
    else if(data.action==='task-feed')body=JSON.stringify({ok:true,tasks:taskFeed,now:new Date().toISOString()})
    else if(data.action==='task-log')ledger.push(data)
   }
   await call('Fetch.fulfillRequest',{requestId,responseCode,responseHeaders:headers,body:Buffer.from(body).toString('base64')},event.sessionId)
  }catch(error){networkErrors.push(String(error));try{await call('Fetch.failRequest',{requestId,errorReason:'Failed'},event.sessionId)}catch{}}
 }
-const designApi={scratch,js,call,click,button,mode,draft,wait,screenshot,record,replies,requests,apiRequests,taskFeed,ledger,project,file}
+const designApi={scratch,js,call,click,button,mode,draft,wait,screenshot,record,replies,requests,apiRequests,taskFeed,ledger,project,file,setChatSaveFailure:value=>{chatSaveFailure=value}}
 try{
  const env=Object.fromEntries(['PATH','TMPDIR','LANG','LC_ALL'].filter(k=>process.env[k]).map(k=>[k,process.env[k]]))
  Object.assign(env,{HOME:home,GH_CONFIG_DIR:path.join(home,'gh'),GIT_CONFIG_GLOBAL:path.join(home,'gitconfig'),GIT_CONFIG_NOSYSTEM:'1',NALU_NO_TRAINING_DATA:'1',NALU_DISABLE_UPDATES:'1'})
