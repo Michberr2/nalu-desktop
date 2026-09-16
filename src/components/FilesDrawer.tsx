@@ -5,6 +5,8 @@ import SearchPanel from './SearchPanel'
 import GitPanel from './GitPanel'
 import { useState } from 'react'
 import CreateEntryDialog from './CreateEntryDialog'
+import ResizeGrip, { type ResizeDelta } from './ResizeGrip'
+import { clampPanelSize } from '../lib/panelSize'
 
 // The ONE drawer — Files by default, with Search and Git as modes (no extra
 // activity bar; keeps the clean single-drawer look).
@@ -24,15 +26,7 @@ export default function FilesDrawer() {
   ] as const
 
   // drag-to-resize the drawer width
-  const startResize = (e: React.MouseEvent) => {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = ws.filesWidth
-    const onMove = (ev: MouseEvent) => ws.setFilesWidth(startW + (ev.clientX - startX))
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); document.body.style.cursor = '' }
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
-    document.body.style.cursor = 'col-resize'
-  }
+  const resize = ({ start, dx }: ResizeDelta) => ws.setFilesWidth(clampPanelSize(start.width + dx, 180, Math.min(560, (document.querySelector('.ide-workspace')?.clientWidth || innerWidth) * .32)))
 
   return (
     <div className="files-drawer" style={{ width: ws.filesWidth }}>
@@ -53,9 +47,8 @@ export default function FilesDrawer() {
       {creation && <CreateEntryDialog {...creation} onClose={() => setCreation(null)} />}
 
       {/* drag handle to resize the drawer */}
-      <div role="separator" aria-label="Resize files" aria-orientation="vertical" aria-valuemin={180} aria-valuemax={560} aria-valuenow={ws.filesWidth} tabIndex={0} onKeyDown={e => { if(e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); ws.setFilesWidth(ws.filesWidth + (e.key === 'ArrowRight' ? 20 : -20)) } }} onMouseDown={startResize} className="group absolute right-0 top-0 h-full w-1.5 cursor-col-resize" title="Drag to resize">
-        <div className="mx-auto h-full w-px bg-transparent group-hover:bg-gold/50" />
-      </div>
+      <ResizeGrip edge label="Resize files" value={ws.filesWidth} min={180} max={560} onResize={resize} onReset={() => ws.setFilesWidth(240)} />
+      <ResizeGrip label="Resize Files panel" onResize={resize} onReset={() => ws.setFilesWidth(240)} />
     </div>
   )
 }

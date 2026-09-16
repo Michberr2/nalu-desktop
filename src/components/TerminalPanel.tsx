@@ -5,6 +5,8 @@ import '@xterm/xterm/css/xterm.css'
 import { X, Plus, AlertCircle, ChevronDown } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import * as monaco from 'monaco-editor'
+import ResizeGrip, { type ResizeDelta } from './ResizeGrip'
+import { clampPanelSize } from '../lib/panelSize'
 
 let counter = 0
 
@@ -123,20 +125,12 @@ export default function TerminalPanel({ visible = true }: { visible?: boolean })
   )
 
   // Drag the top edge to resize the terminal height (persisted).
-  const startResize = (e: React.MouseEvent) => {
-    e.preventDefault()
-    const startY = e.clientY, startH = ws.termHeight
-    const move = (ev: MouseEvent) => ws.setTermHeight(startH + (startY - ev.clientY))
-    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.style.cursor = '' }
-    document.body.style.cursor = 'ns-resize'
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
-  }
+  const resize = ({ start, dy }: ResizeDelta) => ws.setTermHeight(clampPanelSize(start.height - dy, 120, (document.querySelector('.editor-column')?.clientHeight || innerHeight) * .65))
 
   return (
-    <div className="relative flex shrink-0 flex-col overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/80 backdrop-blur-2xl" style={{ height: ws.termHeight }}>
-      <div onMouseDown={startResize} title="Drag to resize" className="group absolute inset-x-0 top-0 z-10 flex h-2 cursor-ns-resize items-center justify-center">
-        <div className="h-0.5 w-10 rounded-full bg-glass/20 group-hover:bg-gold/60" />
-      </div>
+    <div className="terminal-panel relative flex h-full shrink-0 flex-col overflow-hidden rounded-2xl border border-glass/[0.1] bg-panel/80 backdrop-blur-2xl">
+      <ResizeGrip edge label="Resize terminal" axis="y" onResize={resize} onReset={() => ws.setTermHeight(224)} value={ws.termHeight} min={120} max={700} />
+      <ResizeGrip label="Resize Terminal panel" axis="y" onResize={resize} onReset={() => ws.setTermHeight(224)} />
       <div className="flex h-8 shrink-0 items-center gap-3 border-b border-glass/[0.06] px-3 pt-0.5">
         <Tab id="terminal" label="Terminal" on={view === 'terminal'} />
         <Tab id="problems" label="Problems" on={view === 'problems'} />

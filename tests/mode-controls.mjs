@@ -63,13 +63,18 @@ async function paused(event){
    else if(data.action==='task-log')ledger.push(data)
   }
   await call('Fetch.fulfillRequest',{requestId,responseCode,responseHeaders:headers,body:Buffer.from(body).toString('base64')},event.sessionId)
- }catch(error){networkErrors.push(String(error));try{await call('Fetch.failRequest',{requestId,errorReason:'Failed'},event.sessionId)}catch{}}
+ }catch(error){
+  // Stop/reload can cancel a request after the fixture receives its pause.
+  // Chromium then expires the interception ID before fulfillment completes.
+  if(!/Invalid InterceptionId/.test(String(error)))networkErrors.push(String(error))
+  try{await call('Fetch.failRequest',{requestId,errorReason:'Failed'},event.sessionId)}catch{}
+ }
 }
 const designApi={scratch,js,call,click,button,mode,draft,wait,screenshot,record,replies,requests,apiRequests,taskFeed,ledger,project,file,setChatSaveFailure:value=>{chatSaveFailure=value}}
 try{
  const env=Object.fromEntries(['PATH','TMPDIR','LANG','LC_ALL'].filter(k=>process.env[k]).map(k=>[k,process.env[k]]))
  Object.assign(env,{HOME:home,GH_CONFIG_DIR:path.join(home,'gh'),GIT_CONFIG_GLOBAL:path.join(home,'gitconfig'),GIT_CONFIG_NOSYSTEM:'1',NALU_NO_TRAINING_DATA:'1',NALU_DISABLE_UPDATES:'1'})
- child=spawn(executable,[...(packaged?[]:[root]),'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--user-data-dir='+profile],{cwd:project,env,detached:true,stdio:['ignore','pipe','pipe']})
+ child=spawn(executable,[...(packaged?[]:[root]),...(process.env.NALU_RESIZE_TEST==='1'?['--inspect=0']:[]),'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--user-data-dir='+profile],{cwd:project,env,detached:true,stdio:['ignore','pipe','pipe']})
  exited=new Promise(resolve=>child.once('exit',resolve));child.stdout.on('data',d=>output+=d);child.stderr.on('data',d=>output+=d)
  child.on('error',e=>output+=e.message)
  await wait(()=>/DevTools listening on (ws:\/\/[^\s]+)/.test(output),'app launch')
@@ -80,7 +85,21 @@ try{
  await call('Fetch.enable',{patterns:[{urlPattern:'https://*'},{urlPattern:'http://*'}]})
  await wait(()=>js(`!!window.nalu && !!document.querySelector('button[title="Sign in"]')`),'fresh UI')
  await js(`localStorage.setItem('nalu-app-mode','ide');localStorage.setItem('nalu-last-folder',${JSON.stringify(project)});localStorage.setItem('nalu-token','mode-fixture-token')`)
- if(process.env.NALU_ACCOUNT_TEST==='1') {
+ if(process.env.NALU_RESIZE_TEST==='1') {
+   // Native mouse movement must not interrupt CDP pointer capture while the
+   // owner uses their computer. This affects only our disposable test window.
+   await wait(()=>/Debugger listening on (ws:\/\/[^\s]+)/.test(output),'isolated main inspector')
+   const inspector=new WebSocket(output.match(/Debugger listening on (ws:\/\/[^\s]+)/)[1])
+   await new Promise((resolve,reject)=>{inspector.addEventListener('open',resolve,{once:true});inspector.addEventListener('error',reject,{once:true})})
+   await new Promise((resolve,reject)=>{
+     const timer=setTimeout(()=>reject(Error('Test window input isolation timed out')),10000)
+     inspector.addEventListener('message',event=>{const m=JSON.parse(event.data);if(m.id!==1)return;clearTimeout(timer);m.error||m.result?.exceptionDetails?reject(Error(JSON.stringify(m))):resolve()})
+     inspector.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:`process.mainModule.require('electron').BrowserWindow.getAllWindows().forEach(window=>window.setIgnoreMouseEvents(true))`}}))
+   })
+   inspector.close()
+   await (await import('./panel-resize.mjs')).verifyPanelResize(designApi)
+   receipt.passed=true
+ } else if(process.env.NALU_ACCOUNT_TEST==='1') {
    authOutage=true
    await js(`localStorage.setItem('nalu-user',JSON.stringify({id:'saved-fixture',displayName:'Saved Fixture'}))`)
    await call('Page.reload')

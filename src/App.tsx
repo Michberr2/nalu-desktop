@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { WorkspaceProvider, useWorkspace, bgFor } from './lib/store'
 import TitleBar from './components/TitleBar'
 import FilesDrawer from './components/FilesDrawer'
@@ -12,10 +12,26 @@ import StatusBar from './components/StatusBar'
 import SettingsModal from './components/SettingsModal'
 import UpdateBanner from './components/UpdateBanner'
 import { fetchMe, syncCliConfig } from './lib/naluApi'
+import ResizeGrip, { type ResizeDelta } from './components/ResizeGrip'
+import { clampPanelSize, usePanelSize, useStackedPanels } from './lib/panelSize'
 
 function Shell() {
   const ws = useWorkspace()
   const [terminalStarted, setTerminalStarted] = useState(false)
+  const areaRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<HTMLDivElement>(null)
+  const stacked = useStackedPanels()
+  const [assistantWidth, setAssistantWidth] = usePanelSize('nalu-assistant-w')
+  const [assistantHeight, setAssistantHeight] = usePanelSize('nalu-assistant-h')
+  const resizeAssistant = ({ start, dx, dy }: ResizeDelta) => {
+    if (stacked) setAssistantHeight(clampPanelSize(start.height - dy, 260, (areaRef.current?.clientHeight || innerHeight) - 220))
+    else setAssistantWidth(clampPanelSize(start.width - dx, 300, (areaRef.current?.clientWidth || innerWidth) - 292))
+  }
+  const resizeEditor = ({ start, dx, dy }: ResizeDelta) => {
+    if (!stacked) setAssistantWidth(clampPanelSize((areaRef.current?.clientWidth || 0) - start.width - dx - 12, 300, (areaRef.current?.clientWidth || 0) - 292))
+    if (ws.termOpen) ws.setTermHeight(clampPanelSize((editorRef.current?.clientHeight || 0) - start.height - dy - 10, 120, (editorRef.current?.clientHeight || 0) * .65))
+    else if (stacked) setAssistantHeight(clampPanelSize((areaRef.current?.clientHeight || 0) - start.height - dy - 10, 260, (areaRef.current?.clientHeight || 0) - 220))
+  }
   useEffect(() => { if (ws.termOpen) setTerminalStarted(true) }, [ws.termOpen])
 
   useEffect(() => window.nalu.companion?.onTask(prompt => { ws.setAppMode('ide'); window.dispatchEvent(new CustomEvent('nalu:compose', { detail: { mode: 'auto', prompt } })) }), [ws.setAppMode])
@@ -77,12 +93,12 @@ function Shell() {
       </div>
         <main aria-label="Workspace" className="ide-workspace" style={{ display: ws.appMode === 'ide' ? undefined : 'none' }}>
           {ws.filesOpen && <FilesDrawer />}
-          <div className="work-area">
-            <div className="editor-column">
-              <div className="editor-surface"><EditorArea /></div>
-              {(terminalStarted || ws.termOpen) && <div className="terminal-dock" style={{ display: ws.termOpen ? undefined : 'none' }}><TerminalPanel visible={ws.termOpen && ws.appMode === 'ide'} /></div>}
+          <div ref={areaRef} className="work-area" style={{ '--assistant-width': assistantWidth === null ? undefined : `${assistantWidth}px`, '--assistant-height': assistantHeight === null ? undefined : `${assistantHeight}px` } as CSSProperties}>
+            <div ref={editorRef} className="editor-column">
+              <div className="editor-surface"><EditorArea /><ResizeGrip label="Resize Editor panel" axis={stacked ? 'y' : ws.termOpen ? 'both' : 'x'} onResize={resizeEditor} onReset={() => { setAssistantWidth(null); setAssistantHeight(null); if (ws.termOpen) ws.setTermHeight(224) }} /></div>
+              {(terminalStarted || ws.termOpen) && <div className="terminal-dock" style={{ display: ws.termOpen ? undefined : 'none', height: ws.termHeight }}><TerminalPanel visible={ws.termOpen && ws.appMode === 'ide'} /></div>}
             </div>
-            <aside className="assistant-column" aria-label="Nalu assistant"><NaluBar /></aside>
+            <aside className="assistant-column" aria-label="Nalu assistant"><NaluBar /><ResizeGrip label="Resize Nalu panel" corner="left" axis={stacked ? 'y' : 'x'} onResize={resizeAssistant} onReset={() => { setAssistantWidth(null); setAssistantHeight(null) }} /></aside>
           </div>
         </main>
 

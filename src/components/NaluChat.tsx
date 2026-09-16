@@ -4,6 +4,8 @@ import { useWorkspace } from '../lib/store'
 import { getToken, loadChats, saveChats, streamChat, type Chat, type ChatMsg, type WireMessage } from '../lib/naluApi'
 import wolfUrl from '../lib/wolf'
 import MessageContent from './MessageContent'
+import ResizeGrip, { type ResizeDelta } from './ResizeGrip'
+import { clampPanelSize, usePanelSize } from '../lib/panelSize'
 
 // All the online Nalu experts — same models the website routes to. "Auto" lets
 // Nalu pick the best expert per message (recommended); or force a specific one.
@@ -51,6 +53,9 @@ function ArtifactChips({ m }: { m: ChatMsg }) {
 
 export default function NaluChat() {
   const ws = useWorkspace()
+  const [sidebarWidth, setSidebarWidth] = usePanelSize('nalu-chats-sidebar-w')
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const resizeSidebar = ({ start, dx }: ResizeDelta) => setSidebarWidth(clampPanelSize(start.width + dx, 180, Math.min(480, (sidebarRef.current?.parentElement?.clientWidth || innerWidth) - 360)))
   const [chats, setChats] = useState<Chat[]>([])
   const [loading, setLoading] = useState(true)
   const [syncError, setSyncError] = useState('')
@@ -152,7 +157,7 @@ export default function NaluChat() {
   return (
     <div className="chat-layout">
       {/* chat list — your website conversations */}
-      <div className="chat-sidebar">
+      <div ref={sidebarRef} className="chat-sidebar" style={sidebarWidth === null ? undefined : { width: sidebarWidth }}>
         <div className="p-2">
           <button onClick={newChat} className="flex w-full items-center gap-2 rounded-lg bg-gold/90 px-3 py-2 text-[13px] font-medium text-[#15170f] hover:bg-gold"><Plus size={14} /> New chat</button>
           <div className="mt-2 flex items-center gap-2 rounded-lg border border-glass/[0.08] bg-panel2 px-2.5 py-1.5">
@@ -172,10 +177,12 @@ export default function NaluChat() {
             </button>
           ))}
         </div>
+        <ResizeGrip label="Resize Chat list panel" onResize={resizeSidebar} onReset={() => setSidebarWidth(null)} />
       </div>
 
       {/* conversation */}
       <div className="chat-conversation">
+        <ResizeGrip label="Resize Conversation panel" corner="left" target={() => sidebarRef.current} onResize={resizeSidebar} onReset={() => setSidebarWidth(null)} />
         <div className="chat-conversation-heading"><div><span className="text-dim text-[10px] uppercase tracking-widest">Nalu conversations</span><h1>{active?.title || 'A fresh conversation'}</h1></div><span className="text-xs text-dim">{busy ? 'Responding…' : ws.user ? 'Your Nalu account' : 'Sign in to save your chats'}</span></div>
         {syncError && <div role="alert" className="mx-4 mt-2 rounded-lg border border-gold/30 p-3 text-xs text-ink">{syncError} <button className="ml-2 underline" disabled={loading || busy} onClick={() => void retrySync()}>Retry sync</button></div>}
         <div ref={scrollRef} className="chat-messages space-y-5">
