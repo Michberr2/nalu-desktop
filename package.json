@@ -1,7 +1,7 @@
 {
   "name": "nalu-desktop",
-  "version": "0.1.31",
-  "description": "Nalu Desktop — a clean, signed IDE that brings the whole Nalu app to your computer.",
+  "version": "0.1.32",
+  "description": "Nalu Desktop \u2014 a clean, signed IDE that brings the whole Nalu app to your computer.",
   "author": "Nalu (n4lu.ai)",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -65,7 +65,7 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "build/wolf.icns",
+      "icon": "build/avatar.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
@@ -100,13 +100,13 @@
       "artifactName": "Nalu-mac.dmg"
     },
     "win": {
-      "icon": "build/wolf.ico",
+      "icon": "build/avatar.ico",
       "target": [
         "msi"
       ]
     },
     "linux": {
-      "icon": "build/wolf.png",
+      "icon": "build/nalu-avatar.png",
       "target": [
         "AppImage",
         "deb"

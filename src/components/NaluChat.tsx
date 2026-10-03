@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, ArrowUp, Square, FileText, Table, Presentation, Palette, Film, Loader2, MessageSquare } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import { getToken, loadChats, saveChats, streamChat, type Chat, type ChatMsg, type WireMessage } from '../lib/naluApi'
-import wolfUrl from '../lib/wolf'
+import artwork from './avatar/nalu-avatar.png'
+import AvatarPresence from './AvatarPresence'
 import MessageContent from './MessageContent'
 import ResizeGrip, { type ResizeDelta } from './ResizeGrip'
 import { clampPanelSize, usePanelSize } from '../lib/panelSize'
@@ -187,16 +188,17 @@ export default function NaluChat() {
         {syncError && <div role="alert" className="mx-4 mt-2 rounded-lg border border-gold/30 p-3 text-xs text-ink">{syncError} <button className="ml-2 underline" disabled={loading || busy} onClick={() => void retrySync()}>Retry sync</button></div>}
         <div ref={scrollRef} className="chat-messages space-y-5">
           {!active || active.messages.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-              <img src={wolfUrl} alt="" className="h-12 w-12" style={{ filter: 'brightness(0) invert(1)' }} />
-              <h2 className="text-[28px] font-medium tracking-tight">A thought. A question. A new idea.</h2><p className="max-w-md text-[13px] leading-6 text-dim">Give it a place to begin. Your conversations stay connected across Nalu.</p>
+            <div className="chat-avatar-welcome">
+              <h2>I'm right here.</h2><p>A thought, a question, a new idea. Give it a place to begin.</p>
+              <AvatarPresence size={260}/>
+              <span className="avatar-presence-status"><i/>Ready when you are</span>
             </div>
           ) : active.messages.map((m, i) => (
             m.role === 'user' ? (
               <div key={i} className="flex justify-end"><div className="max-w-[80%] whitespace-pre-wrap rounded-xl bg-panel2 px-4 py-3 text-[13px] text-ink">{m.content}</div></div>
             ) : (
               <div key={i} className="flex gap-2.5">
-                <img src={wolfUrl} alt="" className="mt-0.5 h-6 w-6 shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
+                <img src={artwork} alt="Nalu" className="chat-message-avatar" />
                 <div className="min-w-0 flex-1">
                   {m.specialist && <div className="mb-0.5 text-[10.5px] font-medium uppercase tracking-wide text-gold/80">{m.specialist}</div>}
                   {m.content ? <MessageContent text={m.content}/> : <Loader2 size={14} className="animate-spin text-dim" />}

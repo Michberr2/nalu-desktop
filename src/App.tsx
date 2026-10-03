@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { WorkspaceProvider, useWorkspace, bgFor } from './lib/store'
+import AvatarHome from './components/AvatarHome'
+import './avatar-theme.css'
 import TitleBar from './components/TitleBar'
 import FilesDrawer from './components/FilesDrawer'
 import EditorArea from './components/EditorArea'
@@ -28,7 +30,10 @@ function Shell() {
     else setAssistantWidth(clampPanelSize(start.width - dx, 300, (areaRef.current?.clientWidth || innerWidth) - 292))
   }
   const resizeEditor = ({ start, dx, dy }: ResizeDelta) => {
-    if (!stacked) setAssistantWidth(clampPanelSize((areaRef.current?.clientWidth || 0) - start.width - dx - 12, 300, (areaRef.current?.clientWidth || 0) - 292))
+    if (!stacked) {
+      const gap = areaRef.current ? parseFloat(getComputedStyle(areaRef.current).columnGap) || 0 : 16
+      setAssistantWidth(clampPanelSize((areaRef.current?.clientWidth || 0) - start.width - dx - gap, 300, (areaRef.current?.clientWidth || 0) - 280 - gap))
+    }
     if (ws.termOpen) ws.setTermHeight(clampPanelSize((editorRef.current?.clientHeight || 0) - start.height - dy - 10, 120, (editorRef.current?.clientHeight || 0) * .65))
     else if (stacked) setAssistantHeight(clampPanelSize((areaRef.current?.clientHeight || 0) - start.height - dy - 10, 260, (areaRef.current?.clientHeight || 0) - 220))
   }
@@ -51,13 +56,13 @@ function Shell() {
       if (mod && e.key === 'k') { e.preventDefault(); ws.setQuickOpen(false); ws.setPaletteOpen(true) }
       else if (mod && e.key.toLowerCase() === 'p') {
         e.preventDefault()
-        ws.setQuickOpen(!e.shiftKey); ws.setPaletteOpen(e.shiftKey)
+        if (!e.shiftKey) ws.setAppMode('ide'); ws.setQuickOpen(!e.shiftKey); ws.setPaletteOpen(e.shiftKey)
       }
       else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); void (e.shiftKey ? ws.saveActiveAs() : ws.saveActive()) }
-      else if (mod && e.key === '`') { e.preventDefault(); ws.setTermOpen(!ws.termOpen) }
-      else if (mod && e.shiftKey && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); ws.setFilesOpen(true); ws.setDrawerMode('search') }
-      else if (mod && e.shiftKey && (e.key === 'g' || e.key === 'G')) { e.preventDefault(); ws.setFilesOpen(true); ws.setDrawerMode('git') }
-      else if (mod && e.key === 'b') { e.preventDefault(); ws.setFilesOpen(!ws.filesOpen) }
+      else if (mod && e.key === '`') { e.preventDefault(); ws.setAppMode('ide'); ws.setTermOpen(!ws.termOpen) }
+      else if (mod && e.shiftKey && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); ws.setAppMode('ide'); ws.setFilesOpen(true); ws.setDrawerMode('search') }
+      else if (mod && e.shiftKey && (e.key === 'g' || e.key === 'G')) { e.preventDefault(); ws.setAppMode('ide'); ws.setFilesOpen(true); ws.setDrawerMode('git') }
+      else if (mod && e.key === 'b') { e.preventDefault(); ws.setAppMode('ide'); ws.setFilesOpen(!ws.filesOpen) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -88,6 +93,7 @@ function Shell() {
 
       {/* Two interchangeable faces: NALU (website-like chat + your Studio
           conversations) and IDE (files + editor + terminal + Nalu prompt bar). */}
+      {ws.appMode === 'home' && <AvatarHome/>}
       <div className="chats-workspace min-h-0 flex-1" style={{ display: ws.appMode === 'nalu' ? 'flex' : 'none' }}>
           <NaluChat key={ws.user?.id || 'signed-out'} />
       </div>

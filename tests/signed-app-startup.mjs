@@ -94,7 +94,7 @@ try {
   await launch()
   receipt.desktopVersion = await js('window.nalu.appVersion()')
   assert.equal(await js('typeof require'), 'undefined')
-  await js(`localStorage.setItem('nalu-last-folder', ${JSON.stringify(project)}); localStorage.setItem('nalu-app-mode', 'ide')`)
+  await js(`localStorage.setItem('nalu-last-folder', ${JSON.stringify(project)}); localStorage.setItem('nalu-avatar-app-mode', 'ide')`)
   // Seed an isolated workspace through the real persistence bridge; this check
   // does not automate the macOS folder chooser.
   await js(`window.nalu.saveWorkspace(${JSON.stringify(JSON.stringify({ version: 1, folder: project, tabs: [], activePath: null }))})`)

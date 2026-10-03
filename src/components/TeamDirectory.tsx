@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Users } from 'lucide-react'
+import { AvatarPageIntro } from './AvatarPresence'
 import UtilityDialog from './UtilityDialog'
 
 type Member = { id: string; name: string; role: string; responsibilities: string; extension: number; voice: string; active: boolean }
@@ -9,6 +10,7 @@ type Props = { apiBase?: string; readToken: () => string | null }
 export default function TeamDirectory({ apiBase = '', readToken }: Props) {
   const close = () => setOpen(false)
   const [open, setOpen] = useState(false)
+  useEffect(() => { const show = () => setOpen(true); window.addEventListener('nalu:open-team', show); return () => window.removeEventListener('nalu:open-team', show) }, [])
   const [token, setToken] = useState(() => readToken() || '')
   useEffect(() => {
     const check = () => setToken(readToken() || '')
@@ -20,6 +22,7 @@ export default function TeamDirectory({ apiBase = '', readToken }: Props) {
   return <>
     <button type="button" className="header-text-button" aria-label="Your team" onClick={() => setOpen(true)}><Users size={15}/><span>Team</span></button>
     {open && <UtilityDialog title="Your team" onClose={close}>
+      <AvatarPageIntro label="Your team" title="Better together." detail="Your people, your projects. Nalu brings it together."/>
       {token ? <TeamContent key={token} token={token} apiBase={apiBase} readToken={readToken} /> : <p className="text-dim">Sign in to see your team across Nalu apps.</p>}
     </UtilityDialog>}
   </>
@@ -84,29 +87,29 @@ function TeamContent({ token, apiBase = '', readToken }: Props & { token: string
     finally { sending.current = false; if (current()) setBusy(false) }
   }
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><p className="text-sm text-white/65">AI colleagues shared across your Nalu apps.</p>
-        {number && <p className="mt-2 text-lg text-[#ddc497]">{number}</p>}
-        <p className="mt-1 text-xs text-white/60">On a call, say a name or enter an extension followed by #.</p></div>
-      <button type="button" onClick={() => void refresh()} disabled={loading} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-50">{loading ? 'Loading…' : 'Refresh team'}</button>
+    <div className="team-line-card flex flex-wrap items-start justify-between gap-3">
+      <div><p className="text-sm text-dim">AI colleagues shared across your Nalu apps.</p>
+        {number && <p className="mt-2 text-lg text-gold">{number}</p>}
+        <p className="mt-1 text-xs text-dim">On a call, say a name or enter an extension followed by #.</p></div>
+      <button type="button" onClick={() => void refresh()} disabled={loading} className="rounded-lg border border-glass/10 px-3 py-2 text-xs disabled:opacity-50">{loading ? 'Loading…' : 'Refresh team'}</button>
     </div>
     {error && <p role="alert" className="rounded-lg bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
     {notice && <p role="status" className="rounded-lg bg-emerald-400/10 p-3 text-sm text-emerald-200">{notice}</p>}
     <div className="grid gap-3 sm:grid-cols-2">
-      {members.filter(m => m.active).map(member => <article key={member.id} className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
-        <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">{member.name}</h3><span className="rounded-md bg-[#ddc497]/10 px-2 py-1 text-xs tabular-nums text-[#ddc497]">Ext. {member.extension}</span></div>
-        <p className="mt-2 text-sm">{member.role}</p><p className="mt-1 text-xs leading-relaxed text-white/65">{member.responsibilities}</p>
-        <p className="mt-3 text-xs text-white/50">Voice: {member.voice.replace('Polly.', '').replace('-Neural', '')}</p>
+      {members.filter(m => m.active).map(member => <article key={member.id} className="team-member-card">
+        <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">{member.name}</h3><span className="team-extension">Ext. {member.extension}</span></div>
+        <p className="mt-2 text-sm">{member.role}</p><p className="mt-1 text-xs leading-relaxed text-dim">{member.responsibilities}</p>
+        <p className="mt-3 text-xs text-dim">Voice: {member.voice.replace('Polly.', '').replace('-Neural', '')}</p>
       </article>)}
     </div>
-    <form onSubmit={e => void add(e)} className="space-y-3 border-t border-white/10 pt-5">
-      <h3 className="font-semibold">Add a role</h3><p className="text-xs text-white/65">An extension and a distinct available voice are assigned automatically.</p>
+    <form onSubmit={e => void add(e)} className="team-role-form space-y-3">
+      <h3 className="font-semibold">Add a role</h3><p className="text-xs text-dim">An extension and a distinct available voice are assigned automatically.</p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-xs"><span>Name</span><input required value={name} onChange={e => setName(e.target.value)} maxLength={60} className="block w-full rounded-lg border border-white/15 bg-black/20 p-2.5 text-sm" /></label>
-        <label className="space-y-1 text-xs"><span>Company role</span><input required value={role} onChange={e => setRole(e.target.value)} maxLength={80} className="block w-full rounded-lg border border-white/15 bg-black/20 p-2.5 text-sm" /></label>
+        <label className="space-y-1 text-xs"><span>Name</span><input required value={name} onChange={e => setName(e.target.value)} maxLength={60} className="block w-full rounded-lg border border-glass/10 bg-panel2 p-2.5 text-sm" /></label>
+        <label className="space-y-1 text-xs"><span>Company role</span><input required value={role} onChange={e => setRole(e.target.value)} maxLength={80} className="block w-full rounded-lg border border-glass/10 bg-panel2 p-2.5 text-sm" /></label>
       </div>
-      <label className="block space-y-1 text-xs"><span>Responsibilities</span><textarea required value={responsibilities} onChange={e => setResponsibilities(e.target.value)} maxLength={1200} rows={3} className="block w-full rounded-lg border border-white/15 bg-black/20 p-2.5 text-sm" /></label>
-      <button type="submit" disabled={busy || !name.trim() || !role.trim() || !responsibilities.trim()} className="rounded-lg bg-[#ddc497] px-4 py-2.5 text-sm font-semibold text-[#16181d] disabled:opacity-40">{busy ? 'Adding…' : 'Add team member'}</button>
+      <label className="block space-y-1 text-xs"><span>Responsibilities</span><textarea required value={responsibilities} onChange={e => setResponsibilities(e.target.value)} maxLength={1200} rows={3} className="block w-full rounded-lg border border-glass/10 bg-panel2 p-2.5 text-sm" /></label>
+      <button type="submit" disabled={busy || !name.trim() || !role.trim() || !responsibilities.trim()} className="avatar-primary disabled:opacity-40">{busy ? 'Adding…' : 'Add team member'}</button>
     </form>
   </div>
 }

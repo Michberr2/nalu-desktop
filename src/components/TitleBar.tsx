@@ -1,6 +1,6 @@
 import { Search, PanelLeft, TerminalSquare, Settings, FolderOpen, ChevronDown } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
-import wolfUrl from '../lib/wolf'
+import wordmark from '../assets/avatar-wordmark.png'
 import RemoteTaskActivity from './RemoteTaskActivity'
 import TeamDirectory from './TeamDirectory'
 import { API_BASE, getToken } from '../lib/naluApi'
@@ -10,10 +10,11 @@ export default function TitleBar() {
   const ide = ws.appMode === 'ide'
   const initial = (ws.user?.displayName || ws.user?.id || '?').trim().charAt(0).toUpperCase()
   return <header className="app-header drag">
-    <div className="app-brand"><img src={wolfUrl} alt="" /><span>Nalu</span></div>
+    <button className="app-brand no-drag" aria-label="Nalu home" onClick={() => ws.setAppMode('home')}><img src={wordmark} alt="nalu" className="app-wordmark" /></button>
     <nav className="workspace-switch no-drag" aria-label="Main navigation">
+      <button aria-pressed={ws.appMode === 'home'} onClick={() => ws.setAppMode('home')}>Home</button>
       <button aria-pressed={ide} onClick={() => ws.setAppMode('ide')}>Workspace</button>
-      <button aria-pressed={!ide} onClick={() => ws.setAppMode('nalu')}>Chats</button>
+      <button aria-pressed={ws.appMode === 'nalu'} onClick={() => ws.setAppMode('nalu')}>Chats</button>
     </nav>
     {ide && <button className="project-switch no-drag" title={ws.folder || 'Open a project folder'} aria-label="Open project folder" onClick={() => void ws.openFolder()}><FolderOpen size={14}/><span>{ws.folder?.split(/[\\/]/).pop() || 'Open project'}</span><ChevronDown size={12}/></button>}
     <button className="command-search no-drag" aria-label="Search commands" onClick={() => ws.setPaletteOpen(true)}><Search size={14}/><span>Find anything</span><kbd>⌘K</kbd></button>

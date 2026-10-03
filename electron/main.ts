@@ -157,7 +157,7 @@ function createWindow() {
     titleBarOverlay: process.platform === 'darwin' ? undefined : { color: '#14171d', symbolColor: '#e9ebf0', height: 64 },
     // Keep native window controls aligned with the single desktop header.
     trafficLightPosition: { x: 14, y: 25 },
-    icon: path.join(__dirname, '../build/wolf.png'),
+    icon: path.join(__dirname, '../dist/nalu-avatar.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

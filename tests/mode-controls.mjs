@@ -84,8 +84,12 @@ try{
  sessionId=(await call('Target.attachToTarget',{targetId:target.targetId,flatten:true})).sessionId
  await call('Fetch.enable',{patterns:[{urlPattern:'https://*'},{urlPattern:'http://*'}]})
  await wait(()=>js(`!!window.nalu && !!document.querySelector('button[title="Sign in"]')`),'fresh UI')
- await js(`localStorage.setItem('nalu-app-mode','ide');localStorage.setItem('nalu-last-folder',${JSON.stringify(project)});localStorage.setItem('nalu-token','mode-fixture-token')`)
- if(process.env.NALU_RESIZE_TEST==='1') {
+ await js(`localStorage.setItem('nalu-avatar-app-mode','ide');localStorage.setItem('nalu-last-folder',${JSON.stringify(project)});localStorage.setItem('nalu-token','mode-fixture-token')`)
+ if(!process.env.NALU_AVATAR_TEST) await button('Workspace')
+ if(process.env.NALU_AVATAR_TEST==='1') {
+   await (await import('./avatar-design.mjs')).verifyAvatarDesktop(designApi)
+   receipt.passed=true
+ } else if(process.env.NALU_RESIZE_TEST==='1') {
    // Native mouse movement must not interrupt CDP pointer capture while the
    // owner uses their computer. This affects only our disposable test window.
    await wait(()=>/Debugger listening on (ws:\/\/[^\s]+)/.test(output),'isolated main inspector')

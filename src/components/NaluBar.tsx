@@ -1,10 +1,11 @@
+import AvatarPresence from './AvatarPresence'
 import { interpretTask, type WorkMode } from '../lib/taskIntent'
 import { execWithSignal } from '../lib/execWithSignal'
 import { createTerminalExecutor, runTerminalAgent } from '../lib/terminalAgent'
 import { extractProposedFile } from '../lib/editProposal'
 import { awaitApproval } from '../lib/approval'
 import { useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from 'react'
-import { ArrowUp, Check, Square, ChevronDown, X, FileText, FolderTree, Search as SearchIcon, Terminal, Pencil, CheckCircle2, Monitor, MousePointerClick, Sparkles, ArrowRight, Loader2 } from 'lucide-react'
+import { ArrowUp, Check, Square, ChevronDown, X, FileText, FolderTree, Search as SearchIcon, Terminal, Pencil, CheckCircle2, Monitor, MousePointerClick, ArrowRight, Loader2 } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
 import { logTask, streamChat, type WireMessage } from '../lib/naluApi'
 import { getModelSettings } from '../lib/settings'
@@ -372,7 +373,7 @@ export default function NaluBar() {
       <p id="nalu-mode-description" className="assistant-description">{MODES.find(([m]) => m === selectedMode)?.[2]}</p>
       {mode === 'computer' && <BrowserPreview busy={busy} onStop={stopTask}/>}
       <div id="nalu-mode-panel" role="tabpanel" aria-labelledby={`nalu-mode-${selectedMode}`} className="assistant-thread">
-      {(!open || !historyCount) && <div className="assistant-empty"><div className="assistant-empty-icon"><Sparkles size={22}/></div><h2>{mode === 'auto' ? 'What would you like to do?' : mode === 'edit' ? 'A better version, together.' : mode === 'terminal' ? 'Say what you want to run.' : mode === 'computer' ? 'Your next task, handled.' : mode === 'agent' ? 'From idea to working code.' : 'A little clarity goes a long way.'}</h2><p>{mode === 'edit' && !ws.active ? 'Open a file, describe the change, and review the result.' : 'Start with a question or choose an idea below.'}</p><div className="starter-list">{starters[mode].map(text => <button key={text} onClick={() => startPrompt(text)}>{text}<ArrowRight size={13}/></button>)}</div>{historyCount > 0 && <button className="text-gold" onClick={() => setOpen(true)}>Show conversation</button>}</div>}
+      {(!open || !historyCount) && <div className="assistant-empty"><AvatarPresence size={176} phase={busy ? 'thinking' : null} /><h2>{mode === 'auto' ? 'What would you like to do?' : mode === 'edit' ? 'A better version, together.' : mode === 'terminal' ? 'Say what you want to run.' : mode === 'computer' ? 'Your next task, handled.' : mode === 'agent' ? 'From idea to working code.' : 'A little clarity goes a long way.'}</h2><p>{mode === 'edit' && !ws.active ? 'Open a file, describe the change, and review the result.' : 'Start with a question or choose an idea below.'}</p><div className="starter-list">{starters[mode].map(text => <button key={text} onClick={() => startPrompt(text)}>{text}<ArrowRight size={13}/></button>)}</div>{historyCount > 0 && <button className="text-gold" onClick={() => setOpen(true)}>Show conversation</button>}</div>}
 
       {/* COMPUTER transcript — Nalu Catalina operating the whole Mac (it SEES the screen) */}
       {open && mode === 'computer' && pcLog.length > 0 && (

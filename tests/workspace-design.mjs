@@ -6,7 +6,7 @@ async function replaceInput(api,selector,text) {await api.js(`{ const input=docu
 export async function beforeProject(api) {
  const {js,call,click,button,wait,screenshot,record}=api
  await call('Emulation.setDeviceMetricsOverride',{width:1360,height:900,deviceScaleFactor:1,mobile:false})
- assert.ok(await js(`!!document.querySelector('.appearance-pastel')`));assert.ok(await js(visible('[aria-label="Search commands"]')))
+ assert.ok(await js(`!!document.querySelector('.appearance-avatar')`));assert.ok(await js(visible('[aria-label="Search commands"]')))
  await screenshot('design-welcome-wide')
  const expected=['Build an idea','Work on existing code','Handle everyday work']
  for(const text of expected)assert.ok(await js(`document.querySelector('.welcome-task-grid').textContent.includes(${JSON.stringify(text)})`))
@@ -18,7 +18,7 @@ export async function beforeProject(api) {
  await js(`document.querySelector('[title="Sign in"]').focus();document.querySelector('[title="Sign in"]').click()`)
  await wait(()=>js(`!!document.querySelector('dialog[open][aria-labelledby="settings-title"]')`),'Settings')
  await js(`Array.from(document.querySelectorAll('.appearance-options button')).find(b=>b.textContent.startsWith('Scenic')).click()`)
- assert.ok(await js(`!!document.querySelector('.appearance-scenic')`));assert.equal(await js(`localStorage.getItem('nalu-appearance')`),'scenic')
+ assert.ok(await js(`!!document.querySelector('.appearance-scenic')`));assert.equal(await js(`localStorage.getItem('nalu-avatar-appearance')`),'scenic')
  await click('[aria-label="Close settings"]');await screenshot('design-scenic-option')
  await click('[title="Sign in"]');await js(`Array.from(document.querySelectorAll('.appearance-options button')).find(b=>b.textContent.startsWith('Focus')).click()`);await click('[aria-label="Close settings"]')
  await click('[title="Sign in"]');await js(`Array.from(document.querySelectorAll('.appearance-options button')).find(b=>b.textContent.startsWith('Pastel')).click()`);await screenshot('design-pastel-settings');await click('[aria-label="Close settings"]')

@@ -13,6 +13,7 @@ let counter = 0
 // Keep the process and scrollback alive while hidden. A terminal owns its
 // initial directory; changing projects must never send text to a running CLI.
 function Term({ id, active, folder, shell }: { id: string; active: boolean; folder: string | null; shell?: string }) {
+  const { appearance } = useWorkspace()
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const syncRef = useRef<(() => void) | null>(null)
@@ -69,6 +70,13 @@ function Term({ id, active, folder, shell }: { id: string; active: boolean; fold
     const frame = requestAnimationFrame(() => { syncRef.current?.(); termRef.current?.focus() })
     return () => cancelAnimationFrame(frame)
   }, [active])
+
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = appearance === 'avatar'
+      ? { background: '#ffffff', foreground: '#232326', cursor: '#a67b29', selectionBackground: '#a67b2930', black:'#232326', red:'#ad5145', green:'#477d60', yellow:'#946d28', blue:'#587da3', magenta:'#8a6294', cyan:'#487e86', white:'#c1c1c8' }
+      : appearance === 'pastel' ? { background: '#fffcf7', foreground: '#403b34', cursor: '#93784e' }
+      : { background: '#13151b', foreground: '#ededed', cursor: '#af8c56', selectionBackground: '#af8c5644' }
+  }, [appearance, attempt])
 
   return <div className="relative h-full w-full" style={{ display: active ? 'block' : 'none' }}>
     <div ref={hostRef} onMouseDown={() => termRef.current?.focus()} className="h-full w-full px-2 py-1" />

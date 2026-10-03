@@ -111,7 +111,7 @@ export default function EditorArea() {
             path={ws.active.path}
             language={langOf(ws.active.name)}
             value={ws.active.content}
-            theme={ws.appearance === 'pastel' ? 'nalu-pastel' : 'nalu'}
+            theme={ws.appearance === 'avatar' ? 'nalu-avatar' : ws.appearance === 'pastel' ? 'nalu-pastel' : 'nalu'}
             beforeMount={(monaco) => { monacoRef.current = monaco }}
             onMount={(ed) => {
               edRef.current = ed

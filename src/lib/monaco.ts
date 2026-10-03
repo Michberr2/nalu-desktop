@@ -67,3 +67,9 @@ monaco.editor.defineTheme('nalu-pastel', {
     'editorWidget.background': '#FCF8F0', 'scrollbarSlider.background': '#BDAF9733',
   },
 })
+
+monaco.editor.defineTheme('nalu-avatar', {
+  base: 'vs', inherit: true,
+  rules: [{token:'comment',foreground:'909098',fontStyle:'italic'},{token:'keyword',foreground:'926E2D'},{token:'string',foreground:'48745D'},{token:'number',foreground:'956330'},{token:'type',foreground:'526B86'}],
+  colors: {'editor.background':'#FFFFFF','editor.foreground':'#232326','editorGutter.background':'#FFFFFF','minimap.background':'#FFFFFF','editorLineNumber.foreground':'#B0B0B8','editorLineNumber.activeForeground':'#727279','editor.selectionBackground':'#EDE5D6','editor.lineHighlightBackground':'#F6F6F7','editorCursor.foreground':'#A67B29','editorIndentGuide.background1':'#EBEBEF','editorWidget.background':'#F6F6F7','scrollbarSlider.background':'#CCCCD355'},
+})

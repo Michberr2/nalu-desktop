@@ -37,8 +37,8 @@ type Ctx = {
   setPaletteOpen: (b: boolean) => void
   settingsOpen: boolean
   setSettingsOpen: (b: boolean) => void
-  appearance: 'focus' | 'scenic' | 'pastel'
-  setAppearance: (value: 'focus' | 'scenic' | 'pastel') => void
+  appearance: 'avatar' | 'focus' | 'scenic' | 'pastel'
+  setAppearance: (value: 'avatar' | 'focus' | 'scenic' | 'pastel') => void
   routeName: string
   setRouteName: (s: string) => void
   refreshKey: number
@@ -52,8 +52,8 @@ type Ctx = {
   reveal: { path: string; line: number } | null
   openAt: (path: string, name: string, line: number) => Promise<void>
   // Nalu (website-like chat) vs IDE — interchangeable.
-  appMode: 'nalu' | 'ide'
-  setAppMode: (m: 'nalu' | 'ide') => void
+  appMode: 'home' | 'nalu' | 'ide'
+  setAppMode: (m: 'home' | 'nalu' | 'ide') => void
   user: NaluUser | null
   setUser: (u: NaluUser | null) => void
 }
@@ -139,9 +139,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [appearance, setAppearanceState] = useState<'focus' | 'scenic' | 'pastel'>(() => { const saved = localStorage.getItem('nalu-appearance'); return saved === 'focus' || saved === 'scenic' ? saved : 'pastel' })
+  const [appearance, setAppearanceState] = useState<'avatar' | 'focus' | 'scenic' | 'pastel'>(() => { const saved = localStorage.getItem('nalu-avatar-appearance'); return saved === 'focus' || saved === 'scenic' || saved === 'pastel' ? saved : 'avatar' })
   useEffect(() => { document.documentElement.dataset.appearance = appearance }, [appearance])
-  const setAppearance = useCallback((value: 'focus' | 'scenic' | 'pastel') => { setAppearanceState(value); localStorage.setItem('nalu-appearance', value) }, [])
+  const setAppearance = useCallback((value: 'avatar' | 'focus' | 'scenic' | 'pastel') => { setAppearanceState(value); localStorage.setItem('nalu-avatar-appearance', value) }, [])
   const [routeName, setRouteName] = useState('nalu-catalina')
   const [refreshKey, setRefreshKey] = useState(0)
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
@@ -149,10 +149,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null)
   const [filesWidth, setFilesWidth] = useState(() => Number(localStorage.getItem('nalu-files-w')) || 240)
   const [termHeight, setTermHeightState] = useState(() => Number(localStorage.getItem('nalu-term-h')) || 224)
-  // Default to the website-like Nalu chat if signed in, else the IDE.
+  // Open the avatar home on first use; workspaces and conversations keep their state.
   const [user, setUser] = useState<NaluUser | null>(() => currentUser())
-  const [appMode, setAppModeState] = useState<'nalu' | 'ide'>(() => (localStorage.getItem('nalu-app-mode') as 'nalu' | 'ide') || (currentUser() ? 'nalu' : 'ide'))
-  const setAppMode = useCallback((m: 'nalu' | 'ide') => { setAppModeState(m); localStorage.setItem('nalu-app-mode', m) }, [])
+  const [appMode, setAppModeState] = useState<'home' | 'nalu' | 'ide'>(() => (localStorage.getItem('nalu-avatar-app-mode') as 'home' | 'nalu' | 'ide') || 'home')
+  const setAppMode = useCallback((m: 'home' | 'nalu' | 'ide') => { setAppModeState(m); localStorage.setItem('nalu-avatar-app-mode', m) }, [])
 
   const openFolder = useCallback(async () => {
     const dir = await window.nalu.openFolder()

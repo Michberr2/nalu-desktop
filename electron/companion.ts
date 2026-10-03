@@ -12,6 +12,9 @@ export type CompanionSettings = { enabled: boolean; paused: boolean; launchAtLog
 export function desktopCompanion(options: { entry: string; preload: string; icon: string; workspace: () => BrowserWindow | null; openWorkspace: () => void }) {
   let pet: BrowserWindow | null = null, tray: Tray | null = null, closing = false
   let hitAreas: Rect[] = [], ignoring = true, displayId: number | undefined, reveal = 0
+  let expanded = false, reducedMotion = true
+  let destination: { x: number; y: number } | null = null
+  let floatPosition: { x: number; y: number } | null = null
   const working = new Set<string>()
   let updateActivity = { blocked: true, seen: 0, idleMs: 0 }
   const activities = new Map<string, CompanionActivity>()
@@ -23,24 +26,28 @@ export function desktopCompanion(options: { entry: string; preload: string; icon
     for (const window of [pet, options.workspace()]) if (window && !window.isDestroyed()) window.webContents.send('companion:state', state())
     updateMenu()
   }
-  const place = () => {
+  const place = (keepPosition = false) => {
     if (!pet || pet.isDestroyed()) return
     const displays = screen.getAllDisplays()
     const display = displays.find(d => d.id === displayId) || screen.getPrimaryDisplay()
     displayId = display.id
-    const area = display.workArea, height = Math.min(520, area.height)
-    pet.setBounds({ x: area.x, y: area.y + area.height - height, width: area.width, height })
+    const area = display.workArea, previous = pet.getBounds()
+    const width = Math.min(expanded ? 404 : 164, area.width), height = Math.min(expanded ? 520 : 164, area.height)
+    const x = keepPosition ? previous.x + previous.width - width : area.x + area.width - width - 24
+    const y = keepPosition ? previous.y + previous.height - height : area.y + area.height - height - 24
+    pet.setBounds({ x: Math.round(Math.max(area.x, Math.min(area.x + area.width - width, x))), y: Math.round(Math.max(area.y, Math.min(area.y + area.height - height, y))), width, height })
+    destination = null; floatPosition = null
   }
   function create() {
     if (!settings.enabled || closing) return
     if (pet && !pet.isDestroyed()) { pet.showInactive(); return }
-    pet = new BrowserWindow({ width: 900, height: 520, show: false, transparent: true, frame: false, hasShadow: false, resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, backgroundColor: '#00000000', roundedCorners: false, webPreferences: { preload: options.preload, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    pet = new BrowserWindow({ width: 164, height: 164, show: false, transparent: true, frame: false, hasShadow: false, resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, backgroundColor: '#00000000', roundedCorners: false, webPreferences: { preload: options.preload, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
     pet.setAlwaysOnTop(true, 'floating')
     if (process.platform === 'darwin') pet.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false })
     pet.setIgnoreMouseEvents(true, { forward: true }); ignoring = true; hitAreas = []
     place()
     pet.once('ready-to-show', () => { if (settings.enabled) pet?.showInactive(); broadcast() })
-    pet.on('closed', () => { pet = null; hitAreas = [] })
+    pet.on('closed', () => { pet = null; hitAreas = []; expanded = false; reducedMotion = true })
     pet.webContents.on('will-navigate', (event, url) => { if (!isRendererEntry(url, options.entry)) event.preventDefault() })
     pet.webContents.on('will-redirect', (event, url) => { if (!isRendererEntry(url, options.entry)) event.preventDefault() })
     pet.webContents.setWindowOpenHandler(({ url }) => { if (isExternalWebUrl(url)) void shell.openExternal(url); return { action: 'deny' } })
@@ -83,6 +90,20 @@ export function desktopCompanion(options: { entry: string; preload: string; icon
     if (!isTrustedRenderer(event, pet, options.entry)) throw Error('Untrusted companion sender')
     return process.platform !== 'darwin' || await systemPreferences.askForMediaAccess('microphone')
   })
+  ipcMain.on('companion:expanded', (event, open: boolean) => {
+    if (!isTrustedRenderer(event, pet, options.entry) || typeof open !== 'boolean' || open === expanded) return
+    expanded = open; place(true)
+  })
+  ipcMain.on('companion:reduced-motion', (event, reduced: boolean) => {
+    if (!isTrustedRenderer(event, pet, options.entry) || typeof reduced !== 'boolean') return
+    reducedMotion = reduced
+  })
+  ipcMain.on('companion:move', (event, dx: number, dy: number) => {
+    if (!isTrustedRenderer(event, pet, options.entry) || !pet || !Number.isFinite(dx) || !Number.isFinite(dy) || Math.abs(dx) > 500 || Math.abs(dy) > 500) return
+    const bounds = pet.getBounds(), area = screen.getDisplayMatching(bounds).workArea
+    pet.setPosition(Math.round(Math.max(area.x, Math.min(area.x + area.width - bounds.width, bounds.x + dx))), Math.round(Math.max(area.y, Math.min(area.y + area.height - bounds.height, bounds.y + dy))))
+    destination = null; floatPosition = null
+  })
   ipcMain.on('companion:hit-areas', (event, rectangles: Rect[]) => {
     if (!isTrustedRenderer(event, pet, options.entry) || !Array.isArray(rectangles)) return
     hitAreas = rectangles.slice(0, 4).filter(r => r && [r.x, r.y, r.width, r.height].every(Number.isFinite) && r.width > 0 && r.height > 0 && r.width <= 600 && r.height <= 520)
@@ -103,9 +124,25 @@ export function desktopCompanion(options: { entry: string; preload: string; icon
     if (!pet || pet.isDestroyed() || !pet.isVisible()) return
     const cursor = screen.getCursorScreenPoint(), bounds = pet.getBounds()
     const x = cursor.x - bounds.x, y = cursor.y - bounds.y
+    pet.webContents.send('companion:cursor', { x, y })
     const next = !hitAreas.some(r => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height)
     if (next !== ignoring) { ignoring = next; pet.setIgnoreMouseEvents(next, { forward: true }) }
   }, 60)
+  // Move the small native window, leaving the rest of the desktop untouched.
+  // Pause near the pointer so Nalu is easy to catch, and while chatting/resting.
+  const float = setInterval(() => {
+    if (!pet || pet.isDestroyed() || !pet.isVisible() || expanded || settings.paused || reducedMotion || !ignoring) return
+    const bounds = pet.getBounds(), area = screen.getDisplayMatching(bounds).workArea
+    if (!destination || Math.hypot(destination.x - bounds.x, destination.y - bounds.y) < 4) {
+      destination = { x: area.x + Math.random() * Math.max(0, area.width - bounds.width), y: area.y + Math.random() * Math.max(0, area.height - bounds.height) }
+      floatPosition = { x: bounds.x, y: bounds.y }
+    }
+    const from = floatPosition || bounds, dx = destination.x - from.x, dy = destination.y - from.y, distance = Math.hypot(dx, dy)
+    const step = Math.min(0.8, distance)
+    if (distance < 0.01) return
+    floatPosition = { x: from.x + dx / distance * step, y: from.y + dy / distance * step }
+    pet.setPosition(Math.round(floatPosition.x), Math.round(floatPosition.y))
+  }, 33)
   const changed = () => { place(); updateMenu() }
   screen.on('display-added', changed); screen.on('display-removed', changed); screen.on('display-metrics-changed', changed)
   try {
@@ -117,6 +154,6 @@ export function desktopCompanion(options: { entry: string; preload: string; icon
   return {
     updateBlocked: () => working.size > 0 || [...activities.values()].some(a => a.needsApproval) || !!pet && (updateActivity.blocked || Date.now() - updateActivity.seen > 8000 || updateActivity.idleMs < 60000),
     keepAlive: () => settings.enabled && !closing,
-    quit: () => { closing = true; clearInterval(poll); tray?.destroy(); pet?.destroy() },
+    quit: () => { closing = true; clearInterval(poll); clearInterval(float); tray?.destroy(); pet?.destroy() },
   }
 }

@@ -1,12 +1,14 @@
 import { FolderOpen, ArrowUpRight, Code2, Sparkles, BriefcaseBusiness, TerminalSquare, Command, FileSearch } from 'lucide-react'
+import AvatarPresence from './AvatarPresence'
 import { useWorkspace } from '../lib/store'
 
 export default function Welcome() {
   const ws = useWorkspace()
   const compose = (mode: string, prompt = '') => window.dispatchEvent(new CustomEvent('nalu:compose', { detail: { mode, prompt } }))
   const project = ws.folder?.split(/[\\/]/).pop()
-  return <div className="workspace-welcome">
+  return <div className="workspace-welcome avatar-workspace-welcome">
     <div className="welcome-kicker"><span className="status-dot"/> YOUR WORKSPACE</div>
+    <AvatarPresence size={210}/>
     <h1>{project ? 'Let’s make progress.' : 'What are we working on?'}</h1>
     <p>{project ? <>You’re in <strong>{project}</strong>. Open a file, explore an idea, or let Nalu take the first step.</> : 'Build an idea, improve your code, or get everyday work done. Describe the outcome; Nalu helps with the next step.'}</p>
     <div className="welcome-primary-actions">

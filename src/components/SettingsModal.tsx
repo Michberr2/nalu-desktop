@@ -2,7 +2,8 @@ import CompanionSettings from './CompanionSettings'
 import { useEffect, useRef, useState } from 'react'
 import { X, LogOut, Check, Phone } from 'lucide-react'
 import { useWorkspace } from '../lib/store'
-import wolfUrl from '../lib/wolf'
+import artwork from './avatar/nalu-avatar.png'
+import AvatarPresence from './AvatarPresence'
 import { currentUser, fetchMe, signIn, signUp, signOut, getToken, setToken, syncCliConfig, updateProfile, type NaluUser } from '../lib/naluApi'
 import { REASONING_LEVELS, REASONING_DESC, getModelSettings, setModelSettings, type ReasoningLevel } from '../lib/settings'
 
@@ -82,7 +83,7 @@ export default function SettingsModal() {
 
   return (
     <dialog ref={dialogRef} aria-labelledby="settings-title"
-      className="m-auto max-h-[calc(100dvh_-_2rem)] w-[calc(100vw_-_2rem)] max-w-md overflow-y-auto rounded-2xl border border-glass/[0.12] bg-panel p-0 text-ink shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+      className="settings-dialog m-auto max-h-[calc(100dvh_-_2rem)] w-[calc(100vw_-_2rem)] max-w-md overflow-y-auto rounded-2xl border border-glass/[0.12] bg-panel p-0 text-ink shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
       onCancel={(e) => { e.preventDefault(); ws.setSettingsOpen(false) }}
       onKeyDown={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
@@ -99,9 +100,12 @@ export default function SettingsModal() {
           <button aria-label="Close settings" onClick={() => ws.setSettingsOpen(false)} className="rounded p-1 text-dim hover:bg-glass/10 hover:text-ink"><X size={16} /></button>
         </div>
 
-        <div className="p-5">
+        <div className="settings-body">
+        <aside className="settings-avatar-intro"><span className="avatar-eyebrow">Your Nalu</span><h2>Make yourself<br/>at home.</h2><p>Your work, your rhythm.<br/>A familiar little presence.</p><AvatarPresence size={240}/><span className="avatar-presence-status"><i/>Right here with you</span></aside>
+        <div className="settings-controls">
         <fieldset className="mb-6"><legend className="mb-2 text-[12px] font-semibold text-ink">Appearance</legend>
           <div className="appearance-options">
+            <button type="button" aria-pressed={ws.appearance === 'avatar'} onClick={() => ws.setAppearance('avatar')}><span className="appearance-swatch avatar-swatch"/>Nalu<span>The original avatar look</span></button>
             <button type="button" aria-pressed={ws.appearance === 'pastel'} onClick={() => ws.setAppearance('pastel')}><span className="appearance-swatch pastel-swatch" style={{backgroundImage:`url(${import.meta.env.BASE_URL}bg/pastel-painting.png)`,backgroundSize:'cover',backgroundPosition:'center'}}/>Pastel<span>Softly painted scenery</span></button>
             <button type="button" aria-pressed={ws.appearance === 'focus'} onClick={() => ws.setAppearance('focus')}><span className="appearance-swatch focus-swatch"/>Focus<span>Calm dark workspace</span></button>
             <button type="button" aria-pressed={ws.appearance === 'scenic'} onClick={() => ws.setAppearance('scenic')}><span className="appearance-swatch scenic-swatch"/>Scenic<span>Nalu’s glass backdrop</span></button>
@@ -113,7 +117,7 @@ export default function SettingsModal() {
         {user ? (
           <div className="rounded-xl border border-glass/[0.1] bg-panel2 p-3.5">
             <div className="flex items-center gap-3">
-              <img src={wolfUrl} alt="" className="h-9 w-9 rounded-lg" style={{ filter: 'brightness(0) invert(1)' }} />
+              <img src={artwork} alt="Nalu" className="h-9 w-9 rounded-lg" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-medium text-ink">{user.displayName}</div>
                 <div className="truncate text-[11px] text-dim">{user.id}</div>
@@ -236,6 +240,7 @@ export default function SettingsModal() {
         </div>
 
         <div className="mt-4 text-[11px] text-dim">Nalu Desktop{desktopVersion ? ` ${desktopVersion}` : ''} — the Nalu app, on your computer.</div>
+        </div>
         </div>
     </dialog>
   )

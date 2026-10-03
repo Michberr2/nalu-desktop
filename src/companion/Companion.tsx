@@ -1,19 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { ArrowUp, Mic, Square, X, ExternalLink, Volume2, VolumeX, Pause, Play, Bone } from 'lucide-react'
+import { ArrowUp, Mic, Square, X, ExternalLink, Volume2, VolumeX, Pause, Play } from 'lucide-react'
 import { streamChat, type WireMessage } from '../lib/naluApi'
 import { interpretCompanionTask } from '../lib/taskIntent'
 import type { CompanionState } from '../../electron/companionPreload'
 import MessageContent from '../components/MessageContent'
-import NaluPet from './NaluPet'
+import FloatingNalu from './FloatingNalu'
 import useLiveTasks from './useLiveTasks'
 import { speakReply, transcribeRecording } from './voice'
-import wolf from '../lib/wolf'
 import './companion.css'
 import { reportUpdateActivity } from '../lib/updateActivity'
 
 export default function Companion() {
   const [settings, setSettings] = useState<CompanionState>({ enabled: true, paused: false, launchAtLogin: false, working: false, reveal: 0, activities: [] })
-  const [open, setOpen] = useState(false), [x, setX] = useState(150), [mood, setMood] = useState('walk')
+  const [open, setOpen] = useState(false)
   const [view, setView] = useState<'chat' | 'tasks'>('chat')
   const feed = useLiveTasks(open)
   const localTasks = settings.activities.filter(a => a.busy || a.needsApproval).filter(a => !feed.tasks.some(task => task.source === 'desktop' && task.title === a.task))
@@ -22,10 +21,14 @@ export default function Companion() {
   const [input, setInput] = useState(''), [messages, setMessages] = useState<WireMessage[]>([])
   const [busy, setBusy] = useState(false), [recording, setRecording] = useState(false), [speaking, setSpeaking] = useState(false)
   const [sound, setSound] = useState(() => localStorage.getItem('nalu-companion-sound') !== 'off')
-  const [notice, setNotice] = useState(''), [fallback, setFallback] = useState(false)
+  const [notice, setNotice] = useState('')
   const [reduced, setReduced] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches)
-  const [treat, setTreat] = useState(0), [treatBusy, setTreatBusy] = useState(false)
   const [width, setWidth] = useState(innerWidth)
+  const x = width - 82
+  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+  const dragged = useRef(false)
+  useEffect(() => { window.companion.expanded(open) }, [open])
+  useEffect(() => { window.companion.reducedMotion(reduced) }, [reduced])
   const controller = useRef<AbortController | null>(null), busyRef = useRef(false)
   const updateBlocked = useRef(true)
   updateBlocked.current = busy || recording || speaking || open || !!input
@@ -107,13 +110,21 @@ export default function Companion() {
   const panelWidth = Math.min(380, width - 24)
   const left = Math.max(12, Math.min(width - panelWidth - 12, x - panelWidth / 2))
   return <div className="companion-root">
-    <NaluPet reveal={settings.reveal} input={{ working: working || busy && !speaking, listening: recording, speaking, interacting: open, paused: settings.paused, reduced }} onPosition={(position, state) => { setX(position); setMood(state) }} onError={() => setFallback(true)} treat={treat} onTreat={setTreatBusy} />
-    {fallback && <img className="companion-fallback" src={wolf} alt="Nalu" style={{ left: x - 45 }} />}
-    <button ref={petButton} className="pet-hit-area" aria-label="Talk to Nalu" title="Talk to Nalu" style={{ left: x - 108 }} onClick={() => setOpen(true)} onKeyDown={e => { if (e.key === 'Escape') close() }}><span className="pet-caption">{recording ? 'Listening…' : speaking ? 'Speaking…' : working || busy ? 'Working…' : 'Nalu'}</span></button>
+    <FloatingNalu paused={settings.paused} reduced={reduced} phase={recording ? 'listening' : speaking ? 'talking' : working || busy ? 'thinking' : null} />
+    <button ref={petButton} className="pet-hit-area" aria-label="Talk to Nalu" title="Talk to Nalu · drag to move"
+      onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.screenX, y: e.screenY, moved: false }; dragged.current = false; e.currentTarget.setPointerCapture(e.pointerId) }}
+      onPointerMove={e => {
+        const from = drag.current; if (!from) return
+        const dx = e.screenX - from.x, dy = e.screenY - from.y
+        if (from.moved || Math.hypot(dx, dy) > 4) { from.moved = true; dragged.current = true; window.companion.moveBy(dx, dy); from.x = e.screenX; from.y = e.screenY }
+      }}
+      onPointerUp={() => { drag.current = null }} onPointerCancel={() => { drag.current = null; dragged.current = true }}
+      onClick={() => { if (!dragged.current) setOpen(true); dragged.current = false }}
+      onKeyDown={e => { if (e.key === 'Escape') close() }}><span className="pet-caption">{recording ? 'Listening…' : speaking ? 'Speaking…' : working || busy ? 'Working…' : 'Nalu'}</span></button>
     {open && <section ref={panel} className="companion-panel" style={{ left, '--thought-anchor': `${Math.max(45,Math.min(335,x-left+35))}px` } as CSSProperties} aria-label="Talk with Nalu" onKeyDown={e => { if (e.key === 'Escape') close() }}>
       <svg className="thought-cloud" viewBox="0 0 400 360" preserveAspectRatio="none" aria-hidden="true"><path d="M28 48 C7 47 5 19 29 17 C42 2 69 2 87 13 C108 1 137 1 154 13 C176 0 206 1 223 13 C245 0 273 2 291 14 C311 3 344 5 355 20 C382 11 402 30 386 51 C405 68 403 94 387 109 C405 128 404 156 388 172 C405 191 403 219 386 234 C404 254 401 283 383 295 C398 321 380 343 357 338 C343 356 315 358 295 345 C274 360 245 359 226 347 C205 361 178 360 159 347 C139 360 110 358 92 345 C70 358 42 350 34 333 C9 337 -1 310 17 292 C-1 272 1 248 16 232 C-1 212 1 188 16 172 C-1 151 0 126 17 110 C1 91 3 61 28 48 Z"/></svg>
       <span className="thought-trail" aria-hidden="true"><i/><i/><i/></span>
-      <header><div><strong>Nalu{(busy || working) && <span className="thought-dots" aria-label="Nalu is thinking"><i/><i/><i/></span>}</strong><span>{recording ? 'Microphone on' : working ? 'Working with you' : mood === 'sleep' ? 'A little company for your day' : 'Right here with you'}</span></div><button aria-label="Open Nalu workspace" title="Open workspace" onClick={() => void window.companion.openWorkspace()}><ExternalLink size={15}/></button><button aria-label="Close companion conversation" onClick={close}><X size={16}/></button></header>
+      <header><div><strong>Nalu{(busy || working) && <span className="thought-dots" aria-label="Nalu is thinking"><i/><i/><i/></span>}</strong><span>{recording ? 'Microphone on' : working ? 'Working with you' : 'Right here with you'}</span></div><button aria-label="Open Nalu workspace" title="Open workspace" onClick={() => void window.companion.openWorkspace()}><ExternalLink size={15}/></button><button aria-label="Close companion conversation" onClick={close}><X size={16}/></button></header>
       
       <div className="companion-view-tabs" role="tablist" aria-label="Companion view">
         <button role="tab" aria-selected={view === 'chat'} onClick={() => setView('chat')}>Chat</button>
@@ -137,8 +148,7 @@ export default function Companion() {
       <form onSubmit={e => { e.preventDefault(); void send() }}><textarea ref={prompt} aria-label="Companion message" placeholder="Talk to Nalu…" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}/><div className="companion-actions">
         <button type="button" className={recording ? 'recording' : ''} aria-label={recording ? 'Finish recording and send' : 'Talk with microphone'} aria-pressed={recording} onClick={() => void record()}><Mic size={17}/></button>
         <button type="button" aria-label={sound ? 'Mute Nalu voice' : 'Enable Nalu voice'} aria-pressed={sound} onClick={() => { if (sound) stop(); setSound(!sound); localStorage.setItem('nalu-companion-sound', sound ? 'off' : 'on') }}>{sound ? <Volume2 size={16}/> : <VolumeX size={16}/>}</button>
-        <button type="button" aria-label={settings.paused ? 'Let Nalu roam' : 'Let Nalu rest'} onClick={() => void window.companion.set({ paused: !settings.paused }).then(setSettings)}>{settings.paused ? <Play size={15}/> : <Pause size={15}/>}</button>
-        <button type="button" aria-label="Toss Nalu a treat" title="Toss a treat" disabled={treatBusy || fallback} onClick={() => setTreat(value => value + 1)}><Bone size={17}/></button>
+        <button type="button" aria-label={settings.paused ? 'Let Nalu float' : 'Pause Nalu'} onClick={() => void window.companion.set({ paused: !settings.paused }).then(setSettings)}>{settings.paused ? <Play size={15}/> : <Pause size={15}/>}</button>
         <span/>{busy || recording ? <button type="button" className="pet-send" aria-label="Stop companion" onClick={() => { stop(); setNotice('Stopped.') }}><Square size={13}/>Stop</button> : <button type="submit" className="pet-send" aria-label="Send companion message" disabled={!input.trim()}><ArrowUp size={16}/></button>}
       </div>
       <footer><span>{recording ? 'Recording stops after one minute' : 'Microphone is off until you tap it'}</span><button type="button" onClick={() => void window.companion.set({ enabled: false })}>Hide Nalu</button></footer></form>
